@@ -10,12 +10,67 @@ from typing import  List, Dict
 import pandas as pd
 
 from pypropel.prot.sequence.PDB import PDB
+from pypropel.prot.sequence.PDBSequence import PDBSequence
 from pypropel.prot.structure.convert.ToFasta import ToFasta
 from pypropel.prot.structure.chain.Format import Format
 from pypropel.prot.structure.chain.Splitter import Splitter
 from pypropel.prot.structure.hetatm.Remove import Remove
 from pypropel.prot.structure.distance.isite.heavy.AllAgainstAll import AllAgainstAll
 from pypropel.util.Console import Console
+
+
+def read_pdb_sequence(pdb_fpn: str) -> str:
+    """
+    Extract amino acid sequence from a PDB file.
+    
+    A simplified function that reads a PDB file and returns
+    the concatenated amino acid sequence from all chains.
+    
+    Parameters
+    ----------
+    pdb_fpn : str
+        Full path to the PDB file.
+        
+    Returns
+    -------
+    str
+        Amino acid sequence in one-letter code.
+        
+    Examples
+    --------
+    >>> import pypropel.str as ppstr
+    >>> seq = ppstr.read_pdb_sequence('/path/to/protein.pdb')
+    >>> print(seq[:20])
+    'MVLSPADKTNVKAAWGKVGA'
+    """
+    return PDBSequence().from_file(pdb_fpn)
+
+
+def structure_to_sequence(structure) -> str:
+    """
+    Extract amino acid sequence from a Bio.PDB structure object.
+    
+    Parameters
+    ----------
+    structure : Bio.PDB.Structure.Structure
+        A BioPython PDB structure object.
+        
+    Returns
+    -------
+    str
+        Amino acid sequence in one-letter code.
+        
+    Examples
+    --------
+    >>> from Bio.PDB import PDBParser
+    >>> import pypropel.str as ppstr
+    >>> parser = PDBParser(QUIET=True)
+    >>> structure = parser.get_structure('prot', '/path/to/protein.pdb')
+    >>> seq = ppstr.structure_to_sequence(structure)
+    >>> print(seq[:20])
+    'MVLSPADKTNVKAAWGKVGA'
+    """
+    return PDBSequence().from_structure(structure)
 
 
 def read(

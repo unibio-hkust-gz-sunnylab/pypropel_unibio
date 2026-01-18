@@ -5,9 +5,10 @@ __developer__ = "Jianfeng Sun"
 __maintainer__ = "Jianfeng Sun"
 __email__="jianfeng.sunmt@gmail.com"
 
-from typing import List, Dict
+from typing import List, Dict, Optional
 from typing_extensions import deprecated
 
+import numpy as np
 import pandas as pd
 
 from pypropel.prot.structure.distance.isite.heavy.AllAgainstAll import AllAgainstAll
@@ -16,6 +17,236 @@ from pypropel.prot.structure.distance.isite.DistanceComplexOne import DistanceCo
 from pypropel.prot.structure.distance.isite.check.Complex import Complex
 from pypropel.prot.structure.distance.isite.check.Pair import Pair
 from pypropel.prot.structure.distance.isite.Label import Label
+from pypropel.prot.structure.distance.ContactMap import ContactMap
+
+# Global instance for convenience functions
+_contact_map = ContactMap()
+
+
+# ==================== Atom Level ====================
+
+def atom_distance(coord1: np.ndarray, coord2: np.ndarray) -> float:
+    """
+    Calculate Euclidean distance between two atom coordinates.
+    
+    Parameters
+    ----------
+    coord1 : np.ndarray
+        3D coordinate of first atom, shape (3,).
+    coord2 : np.ndarray
+        3D coordinate of second atom, shape (3,).
+        
+    Returns
+    -------
+    float
+        Euclidean distance between the atoms.
+        
+    Examples
+    --------
+    >>> import pypropel.dist as ppdist
+    >>> import numpy as np
+    >>> d = ppdist.atom_distance(np.array([0,0,0]), np.array([3,4,0]))
+    >>> print(d)  # 5.0
+    """
+    return _contact_map.atom_distance(coord1, coord2)
+
+
+def atom_distance_matrix(coords1: np.ndarray, coords2: np.ndarray) -> np.ndarray:
+    """
+    Calculate pairwise distance matrix between two sets of atom coordinates.
+    
+    Parameters
+    ----------
+    coords1 : np.ndarray
+        First set of coordinates, shape (N, 3).
+    coords2 : np.ndarray
+        Second set of coordinates, shape (M, 3).
+        
+    Returns
+    -------
+    np.ndarray
+        Distance matrix of shape (N, M).
+    """
+    return _contact_map.atom_distance_matrix(coords1, coords2)
+
+
+# ==================== Residue Level ====================
+
+def residue_distance(res1_coords: np.ndarray, res2_coords: np.ndarray) -> float:
+    """
+    Calculate minimum distance between any atoms of two residues.
+    
+    Parameters
+    ----------
+    res1_coords : np.ndarray
+        Coordinates of all atoms in residue 1, shape (N, 3).
+    res2_coords : np.ndarray
+        Coordinates of all atoms in residue 2, shape (M, 3).
+        
+    Returns
+    -------
+    float
+        Minimum distance between any atom pair.
+    """
+    return _contact_map.residue_distance(res1_coords, res2_coords)
+
+
+def residue_ligand_distance(residue_coords: np.ndarray, ligand_coords: np.ndarray) -> float:
+    """
+    Calculate minimum distance from a residue to a ligand.
+    
+    Parameters
+    ----------
+    residue_coords : np.ndarray
+        Coordinates of residue atoms, shape (N, 3).
+    ligand_coords : np.ndarray
+        Coordinates of ligand atoms, shape (M, 3).
+        
+    Returns
+    -------
+    float
+        Minimum distance from any residue atom to any ligand atom.
+    """
+    return _contact_map.residue_ligand_distance(residue_coords, ligand_coords)
+
+
+# ==================== Protein Level ====================
+
+def protein_distance_matrix(
+        structure, 
+        chain_ids: Optional[List[str]] = None,
+        use_ca_only: bool = False
+) -> pd.DataFrame:
+    """
+    Calculate residue-residue distance matrix for a protein structure.
+    
+    Parameters
+    ----------
+    structure : Bio.PDB.Structure.Structure
+        BioPython structure object.
+    chain_ids : List[str], optional
+        List of chain IDs to include. If None, includes all chains.
+    use_ca_only : bool, optional
+        If True, use only C-alpha atoms for distance calculation.
+        
+    Returns
+    -------
+    pd.DataFrame
+        Distance matrix with residue info as index/columns.
+    """
+    return _contact_map.protein_distance_matrix(structure, chain_ids, use_ca_only)
+
+
+def protein_ligand_distances(structure, ligand_coords: np.ndarray) -> pd.DataFrame:
+    """
+    Calculate distances from all protein residues to a ligand.
+    
+    Parameters
+    ----------
+    structure : Bio.PDB.Structure.Structure
+        BioPython structure object.
+    ligand_coords : np.ndarray
+        Ligand atom coordinates, shape (M, 3).
+        
+    Returns
+    -------
+    pd.DataFrame
+        DataFrame with columns: chain, res_id, res_name, distance.
+    """
+    return _contact_map.protein_ligand_distances(structure, ligand_coords)
+
+
+# ==================== Contact Maps ====================
+
+def protein_contact_map(
+        structure, 
+        threshold: float = 8.0,
+        chain_ids: Optional[List[str]] = None,
+        use_ca_only: bool = False
+) -> np.ndarray:
+    """
+    Generate binary contact map for a protein.
+    
+    Parameters
+    ----------
+    structure : Bio.PDB.Structure.Structure
+        BioPython structure object.
+    threshold : float, optional
+        Distance threshold for contact. Default is 8.0 Angstroms.
+    chain_ids : List[str], optional
+        List of chain IDs to include.
+    use_ca_only : bool, optional
+        If True, use only C-alpha atoms.
+        
+    Returns
+    -------
+    np.ndarray
+        Binary contact map (1 = contact, 0 = no contact).
+    """
+    return _contact_map.protein_contact_map(structure, threshold, chain_ids, use_ca_only)
+
+
+def protein_ligand_contact_map(
+        structure, 
+        ligand_coords: np.ndarray,
+        threshold: float = 5.0
+) -> np.ndarray:
+    """
+    Generate contact map between protein residues and ligand atoms.
+    
+    Parameters
+    ----------
+    structure : Bio.PDB.Structure.Structure
+        BioPython structure object.
+    ligand_coords : np.ndarray
+        Ligand atom coordinates, shape (M, 3).
+    threshold : float, optional
+        Distance threshold for contact. Default is 5.0 Angstroms.
+        
+    Returns
+    -------
+    np.ndarray
+        Binary contact map of shape (N_residues, M_ligand_atoms).
+    """
+    return _contact_map.protein_ligand_contact_map(structure, ligand_coords, threshold)
+
+
+# ==================== Pocket Extraction ====================
+
+def extract_binding_pocket(
+        structure, 
+        ligand_coords: np.ndarray,
+        binding_threshold: float = 5.0,
+        non_binding_threshold: float = 8.0
+) -> pd.DataFrame:
+    """
+    Extract binding pocket residues with classification labels.
+    
+    Parameters
+    ----------
+    structure : Bio.PDB.Structure.Structure
+        BioPython structure object.
+    ligand_coords : np.ndarray
+        Ligand atom coordinates, shape (M, 3).
+    binding_threshold : float, optional
+        Distance below which residue is labeled as binding (1).
+        Default is 5.0 Angstroms.
+    non_binding_threshold : float, optional
+        Distance above which residue is labeled as non-binding (0).
+        Default is 8.0 Angstroms.
+        
+    Returns
+    -------
+    pd.DataFrame
+        DataFrame with columns: chain, res_id, res_name, distance, label.
+        label: 1 = binding, 0 = non-binding, -1 = margin.
+    """
+    return _contact_map.extract_binding_pocket(
+        structure, ligand_coords, binding_threshold, non_binding_threshold
+    )
+
+
+# ==================== Existing Functions ====================
 
 
 def one_vs_one(

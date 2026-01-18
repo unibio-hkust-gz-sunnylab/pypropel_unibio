@@ -1,12 +1,12 @@
 [tool.poetry]
 name = "pypropel"
 version = "0.1.7"
-description = ""
+description = "Processing protein data for bioinformatics analysis"
 authors = ["Jianfeng Sun <jianfeng.sunmt@gmail.com>"]
 readme = "README.md"
 
 [tool.poetry.dependencies]
-python = "^3.11"
+python = "^3.9"
 numpy = "^1.26.4"
 pandas = "^2.2.2"
 biopython = "^1.84"
@@ -16,6 +16,12 @@ scikit-learn = "^1.5.1"
 mini3di = "^0.2.1"
 click = "^8.2.1"
 
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.0.0"
+pytest-cov = "^4.1.0"
+ruff = "^0.3.0"
+mypy = "^1.8.0"
+
 [tool.poetry.scripts]
 pypropel_struct_check_cplx = "pypropel.prot.structure.distance.isite.check.Complex:cli"
 pypropel_struct_dist_cplx1 = "pypropel.prot.structure.distance.isite.DistanceComplexOne:cli"
@@ -23,3 +29,25 @@ pypropel_struct_dist_cplx1 = "pypropel.prot.structure.distance.isite.DistanceCom
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
+
+[tool.ruff]
+line-length = 120
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+ignore = ["E501"]  # Line too long (handled by line-length)
+
+[tool.mypy]
+python_version = "3.9"
+ignore_missing_imports = true
+warn_return_any = false
+warn_unused_ignores = true
+
