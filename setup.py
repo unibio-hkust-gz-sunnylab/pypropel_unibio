@@ -25,7 +25,7 @@ setup(
         'biopython',
         'scikit-learn',
         'mini3di',
-        # 'pyfiglet', # ==0.8.post1
+        'typing_extensions',
     ],
     entry_points={
         'console_scripts': [
