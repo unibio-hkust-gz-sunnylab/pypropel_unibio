@@ -92,3 +92,130 @@ class TestResidueCoords:
                     break
                 break
             break
+
+
+class TestIsStandardAA:
+    """Tests for AA validation functions."""
+
+    def test_is_standard_aa_name_three_letter(self):
+        """Test with three-letter codes."""
+        import pypropel.fpsite as fpsite
+        
+        assert fpsite.is_standard_aa_name('ALA') == True
+        assert fpsite.is_standard_aa_name('GLY') == True
+        assert fpsite.is_standard_aa_name('XYZ') == False
+
+    def test_is_standard_aa_name_one_letter(self):
+        """Test with one-letter codes."""
+        import pypropel.fpsite as fpsite
+        
+        assert fpsite.is_standard_aa_name('A') == True
+        assert fpsite.is_standard_aa_name('G') == True
+        assert fpsite.is_standard_aa_name('X') == False
+
+    def test_is_standard_aa_residue(self, temp_pdb_file):
+        """Test with BioPython residue."""
+        import pypropel.fpsite as fpsite
+        from Bio.PDB import PDBParser
+        
+        parser = PDBParser(QUIET=True)
+        structure = parser.get_structure('test', temp_pdb_file)
+        
+        for model in structure:
+            for chain in model:
+                for residue in chain:
+                    assert fpsite.is_standard_aa(residue) == True
+                    break
+                break
+            break
+
+
+class TestResidueWindow:
+    """Tests for sequence window functions."""
+
+    def test_window_middle(self):
+        """Test window in middle of sequence."""
+        import pypropel.fpsite as fpsite
+        
+        indices = fpsite.get_residue_window(100, 50, k=3)
+        
+        assert len(indices) == 7  # 2*3+1
+        assert indices == [47, 48, 49, 50, 51, 52, 53]
+
+    def test_window_start(self):
+        """Test window at start of sequence."""
+        import pypropel.fpsite as fpsite
+        
+        indices = fpsite.get_residue_window(100, 0, k=3)
+        
+        assert len(indices) == 7
+        assert indices[3] == 0  # Center position
+        assert indices[0] == 0  # Clipped to 0
+
+    def test_window_padded(self):
+        """Test padded window at boundary."""
+        import pypropel.fpsite as fpsite
+        
+        indices = fpsite.get_residue_window_padded(100, 0, k=3, pad_value=-1)
+        
+        assert len(indices) == 7
+        assert indices[0] == -1  # Out of bounds
+        assert indices[3] == 0   # Center
+
+
+class TestSpatialNeighbors:
+    """Tests for spatial neighbor functions."""
+
+    def test_spatial_neighbor_indices(self, temp_pdb_file):
+        """Test getting spatial neighbors by index."""
+        import pypropel.fpsite as fpsite
+        from Bio.PDB import PDBParser
+        
+        parser = PDBParser(QUIET=True)
+        structure = parser.get_structure('test', temp_pdb_file)
+        
+        neighbors = fpsite.get_spatial_neighbor_indices(structure, 0, k=2)
+        
+        # Should have at most 2 neighbors (only 3 residues in test PDB)
+        assert len(neighbors) <= 2
+        # Each should be (index, distance) tuple
+        if len(neighbors) > 0:
+            assert len(neighbors[0]) == 2
+
+
+class TestPositionalEncoding:
+    """Tests for positional encoding functions."""
+
+    def test_sinusoidal_encoding(self):
+        """Test sinusoidal positional encoding."""
+        import pypropel.fpsite as fpsite
+        
+        pe = fpsite.positional_encoding(5, 100, dim=64, mode='sinusoidal')
+        
+        assert pe.shape == (64,)
+        assert pe.dtype == np.float32
+
+    def test_relative_encoding(self):
+        """Test relative positional encoding."""
+        import pypropel.fpsite as fpsite
+        
+        pe = fpsite.positional_encoding(50, 100, dim=32, mode='relative')
+        
+        assert pe.shape == (32,)
+
+    def test_batch_encoding(self):
+        """Test batch positional encoding."""
+        import pypropel.fpsite as fpsite
+        
+        encodings = fpsite.batch_positional_encoding(100, dim=64)
+        
+        assert encodings.shape == (100, 64)
+
+    def test_relative_position(self):
+        """Test relative position normalization."""
+        import pypropel.fpsite as fpsite
+        
+        assert fpsite.relative_position(0, 100) == 0.0
+        assert abs(fpsite.relative_position(99, 100) - 1.0) < 1e-6
+        assert abs(fpsite.relative_position(50, 101) - 0.5) < 1e-6
+
