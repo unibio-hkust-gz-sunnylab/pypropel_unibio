@@ -26,6 +26,7 @@ setup(
         'scikit-learn',
         'mini3di',
         'typing_extensions',
+        'rdkit',
     ],
     entry_points={
         'console_scripts': [
