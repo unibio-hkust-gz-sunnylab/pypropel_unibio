@@ -6,12 +6,130 @@ __maintainer__ = "Jianfeng Sun"
 __email__="jianfeng.sunmt@gmail.com"
 
 from typing import List, Dict
+import numpy as np
 
 from pypropel.prot.feature.sequence.AminoAcidProperty import AminoAcidProperty as aaprop
 from pypropel.prot.feature.sequence.AminoAcidRepresentation import AminoAcidRepresentation as aarepr
 from pypropel.prot.feature.sequence.Position import Position
 from pypropel.prot.feature.rsa.Reader import Reader as rsareader
 from pypropel.prot.feature.ss.Reader import Reader as ssreader
+
+
+# ==================== Amino Acid Mappings ====================
+
+AA_MAP = {
+    'ALA': 0, 'ARG': 1, 'ASN': 2, 'ASP': 3, 'CYS': 4,
+    'GLN': 5, 'GLU': 6, 'GLY': 7, 'HIS': 8, 'ILE': 9,
+    'LEU': 10, 'LYS': 11, 'MET': 12, 'PHE': 13, 'PRO': 14,
+    'SER': 15, 'THR': 16, 'TRP': 17, 'TYR': 18, 'VAL': 19
+}
+
+# Charge mapping (at physiological pH ~7.4)
+CHARGE_MAP = {
+    'ARG': 1.0, 'LYS': 1.0, 'HIS': 0.5,  # Basic (positive)
+    'ASP': -1.0, 'GLU': -1.0,             # Acidic (negative)
+}
+
+# Kyte-Doolittle Hydrophobicity scale
+KD_HYDROPHOBICITY = {
+    'ILE': 4.5, 'VAL': 4.2, 'LEU': 3.8, 'PHE': 2.8, 'CYS': 2.5,
+    'MET': 1.9, 'ALA': 1.8, 'GLY': -0.4, 'THR': -0.7, 'SER': -0.8,
+    'TRP': -0.9, 'TYR': -1.3, 'PRO': -1.6, 'HIS': -3.2, 'GLU': -3.5,
+    'GLN': -3.5, 'ASP': -3.5, 'ASN': -3.5, 'LYS': -3.9, 'ARG': -4.5
+}
+
+
+# ==================== Residue Feature Functions ====================
+
+def residue_one_hot(residue_name: str) -> np.ndarray:
+    """
+    Generate a 20-dimensional one-hot encoding for an amino acid.
+    
+    Parameters
+    ----------
+    residue_name : str
+        Three-letter amino acid code (e.g., 'ALA', 'GLY').
+        
+    Returns
+    -------
+    np.ndarray
+        20-dimensional one-hot vector.
+        
+    Examples
+    --------
+    >>> import pypropel.fpsite as fpsite
+    >>> vec = fpsite.residue_one_hot('ALA')
+    >>> print(vec.shape)  # (20,)
+    >>> print(vec[0])     # 1.0 (ALA is at index 0)
+    """
+    vec = np.zeros(20, dtype=np.float32)
+    if residue_name in AA_MAP:
+        vec[AA_MAP[residue_name]] = 1.0
+    return vec
+
+
+def residue_physchem(residue_name: str) -> np.ndarray:
+    """
+    Get physicochemical properties for an amino acid.
+    
+    Returns [Charge, Hydrophobicity (normalized)].
+    - Charge: -1 (Acidic), +1 (Basic), 0 (Neutral), 0.5 (His at pH 7)
+    - Hydrophobicity: Kyte-Doolittle scale normalized to [-1, 1]
+    
+    Parameters
+    ----------
+    residue_name : str
+        Three-letter amino acid code.
+        
+    Returns
+    -------
+    np.ndarray
+        2-dimensional feature vector [charge, hydrophobicity].
+        
+    Examples
+    --------
+    >>> import pypropel.fpsite as fpsite
+    >>> props = fpsite.residue_physchem('ARG')
+    >>> print(props)  # [1.0, -1.0] (basic, hydrophilic)
+    """
+    charge = CHARGE_MAP.get(residue_name, 0.0)
+    hydro = KD_HYDROPHOBICITY.get(residue_name, 0.0) / 4.5  # Normalize to ~[-1, 1]
+    return np.array([charge, hydro], dtype=np.float32)
+
+
+def residue_coords(residue) -> np.ndarray:
+    """
+    Extract atom coordinates from a BioPython residue object.
+    
+    Parameters
+    ----------
+    residue : Bio.PDB.Residue.Residue
+        BioPython residue object.
+        
+    Returns
+    -------
+    np.ndarray
+        Atom coordinates with shape (N, 3).
+        
+    Examples
+    --------
+    >>> import pypropel.fpsite as fpsite
+    >>> from Bio.PDB import PDBParser
+    >>> parser = PDBParser(QUIET=True)
+    >>> struct = parser.get_structure('test', 'protein.pdb')
+    >>> for model in struct:
+    ...     for chain in model:
+    ...         for residue in chain:
+    ...             coords = fpsite.residue_coords(residue)
+    ...             print(coords.shape)
+    """
+    coords = []
+    for atom in residue:
+        coords.append(atom.get_coord())
+    return np.array(coords) if coords else np.array([]).reshape(0, 3)
+
+
+# ==================== Existing Functions ====================
 
 
 def property(

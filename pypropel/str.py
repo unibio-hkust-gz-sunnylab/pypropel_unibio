@@ -73,6 +73,40 @@ def structure_to_sequence(structure) -> str:
     return PDBSequence().from_structure(structure)
 
 
+def load_pdb(pdb_path: str):
+    """
+    Load a PDB file and return a BioPython Structure object.
+    
+    A convenience function that wraps Bio.PDB.PDBParser.
+    
+    Parameters
+    ----------
+    pdb_path : str
+        Full path to the PDB file.
+        
+    Returns
+    -------
+    Bio.PDB.Structure.Structure or None
+        BioPython Structure object, or None if loading fails.
+        
+    Examples
+    --------
+    >>> import pypropel.str as ppstr
+    >>> structure = ppstr.load_pdb('/path/to/protein.pdb')
+    >>> print(structure)
+    <Structure id=protein>
+    """
+    from Bio.PDB import PDBParser
+    
+    parser = PDBParser(QUIET=True)
+    try:
+        structure = parser.get_structure('protein', pdb_path)
+        return structure
+    except Exception as e:
+        print(f"Error loading PDB {pdb_path}: {e}")
+        return None
+
+
 def read(
         pdb_path,
         pdb_name,

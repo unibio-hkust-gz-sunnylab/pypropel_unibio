@@ -54,3 +54,26 @@ class TestPDBSequenceClass:
         seq = pdb_seq.from_structure(structure)
         
         assert seq == "AGS"
+
+
+class TestLoadPdb:
+    """Tests for load_pdb function."""
+
+    def test_load_pdb(self, temp_pdb_file):
+        """Test loading PDB file."""
+        import pypropel.str as ppstr
+        
+        structure = ppstr.load_pdb(temp_pdb_file)
+        
+        assert structure is not None
+        assert str(structure.id) == "protein"
+
+    def test_load_pdb_and_sequence(self, temp_pdb_file):
+        """Test loading PDB and extracting sequence."""
+        import pypropel.str as ppstr
+        
+        structure = ppstr.load_pdb(temp_pdb_file)
+        seq = ppstr.structure_to_sequence(structure)
+        
+        assert seq == "AGS"
+
