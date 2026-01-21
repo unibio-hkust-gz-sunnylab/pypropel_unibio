@@ -485,6 +485,209 @@ def batch_positional_encoding(seq_length: int, dim: int = 64,
     return encodings
 
 
+# ==================== SASA and Secondary Structure ====================
+
+# Secondary structure mapping (DSSP codes to categories)
+SS_HELIX_CODES = {'H', 'G', 'I'}  # Alpha-helix, 3-10 helix, Pi-helix
+SS_SHEET_CODES = {'E', 'B'}       # Beta-sheet, Beta-bridge
+SS_COIL_CODES = {'T', 'S', '-', ' ', 'C'}  # Turn, Bend, Coil/Loop
+
+
+def residue_secondary_structure(ss_code: str) -> np.ndarray:
+    """
+    One-hot encode secondary structure into 3 categories.
+    
+    Parameters
+    ----------
+    ss_code : str
+        Single-letter DSSP secondary structure code.
+        H/G/I = Helix, E/B = Sheet, T/S/-/C = Coil
+        
+    Returns
+    -------
+    np.ndarray
+        3-dimensional one-hot vector [Helix, Sheet, Coil].
+        
+    Examples
+    --------
+    >>> import pypropel.fpsite as fpsite
+    >>> fpsite.residue_secondary_structure('H')
+    array([1., 0., 0.], dtype=float32)
+    >>> fpsite.residue_secondary_structure('E')
+    array([0., 1., 0.], dtype=float32)
+    >>> fpsite.residue_secondary_structure('-')
+    array([0., 0., 1.], dtype=float32)
+    """
+    vec = np.zeros(3, dtype=np.float32)
+    ss_code = ss_code.upper() if ss_code else '-'
+    
+    if ss_code in SS_HELIX_CODES:
+        vec[0] = 1.0  # Helix
+    elif ss_code in SS_SHEET_CODES:
+        vec[1] = 1.0  # Sheet
+    else:
+        vec[2] = 1.0  # Coil (default)
+    
+    return vec
+
+
+def get_residue_sasa(structure, chain_id: str = None) -> List[Dict]:
+    """
+    Extract per-residue SASA (Solvent Accessible Surface Area) using DSSP.
+    
+    Parameters
+    ----------
+    structure : Bio.PDB.Structure.Structure
+        BioPython structure object.
+    chain_id : str, optional
+        Chain ID to extract. If None, extracts all chains.
+        
+    Returns
+    -------
+    List[Dict]
+        List of dicts with keys: 'chain', 'res_id', 'res_name', 'sasa', 'ss'
+        
+    Examples
+    --------
+    >>> import pypropel.fpsite as fpsite
+    >>> import pypropel.str as ppstr
+    >>> structure = ppstr.load_pdb('/path/to/protein.pdb')
+    >>> sasa_data = fpsite.get_residue_sasa(structure)
+    >>> for res in sasa_data[:3]:
+    ...     print(f"{res['res_name']}: SASA={res['sasa']:.2f}, SS={res['ss']}")
+    """
+    from Bio.PDB import Polypeptide
+    
+    try:
+        from Bio.PDB.DSSP import DSSP
+    except ImportError:
+        raise ImportError("BioPython DSSP module required. Install with: pip install biopython")
+    
+    # Get model (first one)
+    model = structure[0]
+    
+    # Run DSSP - requires dssp/mkdssp installed
+    try:
+        dssp = DSSP(model, structure.get_id(), dssp='mkdssp')
+    except Exception as e:
+        # Try alternative dssp binary name
+        try:
+            dssp = DSSP(model, structure.get_id(), dssp='dssp')
+        except Exception:
+            raise RuntimeError(f"DSSP execution failed: {e}. Ensure mkdssp/dssp is installed.")
+    
+    results = []
+    for key in dssp.keys():
+        chain, res_id_tuple = key
+        
+        # Filter by chain if specified
+        if chain_id is not None and chain != chain_id:
+            continue
+            
+        res_data = dssp[key]
+        # DSSP returns: (index, aa, ss, rsa, phi, psi, ...)
+        # rsa = relative solvent accessibility
+        
+        results.append({
+            'chain': chain,
+            'res_id': res_id_tuple[1],  # Residue number
+            'res_name': res_data[0] if len(res_data[0]) == 1 else res_data[1],
+            'sasa': float(res_data[3]),  # Relative solvent accessibility [0, 1]
+            'ss': res_data[2],  # Secondary structure code
+        })
+    
+    return results
+
+
+def get_structure_sasa(structure, chain_id: str = None) -> np.ndarray:
+    """
+    Extract per-residue SASA as a numpy array.
+    
+    Parameters
+    ----------
+    structure : Bio.PDB.Structure.Structure
+        BioPython structure object.
+    chain_id : str, optional
+        Chain ID to extract.
+        
+    Returns
+    -------
+    np.ndarray
+        SASA values for each residue. Shape: (N_residues,)
+        
+    Examples
+    --------
+    >>> sasa_array = fpsite.get_structure_sasa(structure)
+    >>> print(sasa_array.shape)  # (N_residues,)
+    """
+    data = get_residue_sasa(structure, chain_id)
+    return np.array([d['sasa'] for d in data], dtype=np.float32)
+
+
+def get_structure_ss(structure, chain_id: str = None) -> np.ndarray:
+    """
+    Extract per-residue secondary structure as one-hot encoded array.
+    
+    Parameters
+    ----------
+    structure : Bio.PDB.Structure.Structure
+        BioPython structure object.
+    chain_id : str, optional
+        Chain ID to extract.
+        
+    Returns
+    -------
+    np.ndarray
+        One-hot encoded secondary structure. Shape: (N_residues, 3)
+        Columns: [Helix, Sheet, Coil]
+        
+    Examples
+    --------
+    >>> ss_array = fpsite.get_structure_ss(structure)
+    >>> print(ss_array.shape)  # (N_residues, 3)
+    """
+    data = get_residue_sasa(structure, chain_id)
+    ss_codes = [d['ss'] for d in data]
+    return np.array([residue_secondary_structure(ss) for ss in ss_codes], dtype=np.float32)
+
+
+def get_structure_features_dssp(structure, chain_id: str = None) -> Dict[str, np.ndarray]:
+    """
+    Extract all DSSP-based features (SASA + Secondary Structure) in one call.
+    
+    Parameters
+    ----------
+    structure : Bio.PDB.Structure.Structure
+        BioPython structure object.
+    chain_id : str, optional
+        Chain ID to extract.
+        
+    Returns
+    -------
+    Dict[str, np.ndarray]
+        Dictionary with keys:
+        - 'sasa': Shape (N, 1) - Relative solvent accessibility
+        - 'ss_onehot': Shape (N, 3) - Secondary structure one-hot [Helix, Sheet, Coil]
+        - 'res_ids': Shape (N,) - Residue IDs
+        
+    Examples
+    --------
+    >>> features = fpsite.get_structure_features_dssp(structure)
+    >>> print(features['sasa'].shape, features['ss_onehot'].shape)
+    """
+    data = get_residue_sasa(structure, chain_id)
+    
+    sasa = np.array([d['sasa'] for d in data], dtype=np.float32).reshape(-1, 1)
+    ss_onehot = np.array([residue_secondary_structure(d['ss']) for d in data], dtype=np.float32)
+    res_ids = np.array([d['res_id'] for d in data], dtype=np.int32)
+    
+    return {
+        'sasa': sasa,
+        'ss_onehot': ss_onehot,
+        'res_ids': res_ids,
+    }
+
+
 # ==================== Existing Functions ====================
 
 

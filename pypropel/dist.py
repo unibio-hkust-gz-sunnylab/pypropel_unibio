@@ -246,6 +246,181 @@ def extract_binding_pocket(
     )
 
 
+# ==================== Distance Classification ====================
+
+def classify_binding_distance(
+    distance: float,
+    thresholds: List[float] = [3.5, 6.0]
+) -> int:
+    """
+    Classify distance into N+1 bins based on N thresholds.
+    
+    Parameters
+    ----------
+    distance : float
+        Distance value to classify (Angstroms).
+    thresholds : List[float]
+        Sorted list of threshold values. Creates len(thresholds)+1 classes.
+        
+    Returns
+    -------
+    int
+        Class label from 0 to len(thresholds).
+        
+    Examples
+    --------
+    Default 3 classes with thresholds [3.5, 6.0]:
+    
+    >>> import pypropel.dist as ppdist
+    >>> ppdist.classify_binding_distance(2.0)  # Contact < 3.5Å
+    0
+    >>> ppdist.classify_binding_distance(4.5)  # Near: 3.5Å ≤ d < 6.0Å
+    1
+    >>> ppdist.classify_binding_distance(10.0)  # Far ≥ 6.0Å
+    2
+    
+    Custom 4 classes with thresholds [3.5, 6.0, 10.0]:
+    
+    >>> ppdist.classify_binding_distance(8.0, thresholds=[3.5, 6.0, 10.0])
+    2
+    """
+    for i, thresh in enumerate(sorted(thresholds)):
+        if distance < thresh:
+            return i
+    return len(thresholds)
+
+
+def get_distance_labels(
+    structure,
+    ligand_coords: np.ndarray,
+    thresholds: List[float] = [3.5, 6.0]
+) -> np.ndarray:
+    """
+    Get per-residue distance classification labels.
+    
+    Computes minimum distance from each residue to the ligand and 
+    classifies into bins based on thresholds.
+    
+    Parameters
+    ----------
+    structure : Bio.PDB.Structure.Structure
+        BioPython structure object.
+    ligand_coords : np.ndarray
+        Ligand atom coordinates, shape (M, 3).
+    thresholds : List[float]
+        Distance thresholds for classification.
+        Default [3.5, 6.0] gives 3 classes: Contact, Near, Far.
+        
+    Returns
+    -------
+    np.ndarray
+        Classification labels, shape (N_residues,).
+        Values range from 0 to len(thresholds).
+        
+    Examples
+    --------
+    >>> import pypropel.dist as ppdist
+    >>> import pypropel.str as ppstr
+    >>> import pypropel.mol as ppmol
+    >>> 
+    >>> structure = ppstr.load_pdb('/path/to/protein.pdb')
+    >>> mol = ppmol.load_sdf('/path/to/ligand.sdf')
+    >>> ligand_coords = ppmol.ligand_coords(mol)
+    >>> 
+    >>> labels = ppdist.get_distance_labels(structure, ligand_coords)
+    >>> print(labels.shape)  # (N_residues,)
+    >>> print(np.unique(labels, return_counts=True))
+    """
+    # Get distances for all residues
+    distances_df = protein_ligand_distances(structure, ligand_coords)
+    distances = distances_df['distance'].values
+    
+    # Classify each distance
+    labels = np.array([
+        classify_binding_distance(d, thresholds) 
+        for d in distances
+    ], dtype=np.int64)
+    
+    return labels
+
+
+def get_distance_labels_with_info(
+    structure,
+    ligand_coords: np.ndarray,
+    thresholds: List[float] = [3.5, 6.0]
+) -> pd.DataFrame:
+    """
+    Get per-residue distance classification labels with residue info.
+    
+    Parameters
+    ----------
+    structure : Bio.PDB.Structure.Structure
+        BioPython structure object.
+    ligand_coords : np.ndarray
+        Ligand atom coordinates, shape (M, 3).
+    thresholds : List[float]
+        Distance thresholds for classification.
+        
+    Returns
+    -------
+    pd.DataFrame
+        DataFrame with columns: chain, res_id, res_name, distance, label.
+        
+    Examples
+    --------
+    >>> df = ppdist.get_distance_labels_with_info(structure, ligand_coords)
+    >>> print(df.head())
+    """
+    # Get distances for all residues
+    distances_df = protein_ligand_distances(structure, ligand_coords)
+    
+    # Add classification labels
+    distances_df['label'] = distances_df['distance'].apply(
+        lambda d: classify_binding_distance(d, thresholds)
+    )
+    
+    return distances_df
+
+
+def get_class_weights(
+    labels: np.ndarray,
+    normalize: bool = True
+) -> np.ndarray:
+    """
+    Compute class weights for imbalanced classification (for Focal Loss).
+    
+    Parameters
+    ----------
+    labels : np.ndarray
+        Classification labels.
+    normalize : bool
+        If True, normalize weights to sum to number of classes.
+        
+    Returns
+    -------
+    np.ndarray
+        Weight for each class, inverse proportional to frequency.
+        
+    Examples
+    --------
+    >>> labels = np.array([0, 0, 1, 2, 2, 2, 2, 2])  # Imbalanced
+    >>> weights = ppdist.get_class_weights(labels)
+    >>> print(weights)  # Higher weight for rare class 0
+    """
+    unique, counts = np.unique(labels, return_counts=True)
+    n_classes = int(unique.max()) + 1
+    
+    weights = np.ones(n_classes, dtype=np.float32)
+    
+    for cls, count in zip(unique, counts):
+        weights[int(cls)] = 1.0 / count
+    
+    if normalize:
+        weights = weights * n_classes / weights.sum()
+    
+    return weights
+
+
 # ==================== Existing Functions ====================
 
 

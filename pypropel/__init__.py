@@ -17,4 +17,13 @@ from . import (
     seq,
     str,
     uniprot,
+    mol,
+    gvp,
+    graph,
 )
+
+# ESM is optional (requires fair-esm)
+try:
+    from . import esm
+except ImportError:
+    pass

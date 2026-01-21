@@ -74,3 +74,35 @@ END
     
     # Cleanup
     os.unlink(pdb_path)
+
+
+@pytest.fixture
+def temp_sdf_file():
+    """Create a temporary minimal SDF file for testing."""
+    sdf_content = """
+     RDKit          3D
+
+  6  6  0  0  0  0  0  0  0  0999 V2000
+    1.2124    0.7000    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0
+    1.2124   -0.7000    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0
+    0.0000   -1.4000    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0
+   -1.2124   -0.7000    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0
+   -1.2124    0.7000    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0
+    0.0000    1.4000    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0
+  1  2  2  0
+  2  3  1  0
+  3  4  2  0
+  4  5  1  0
+  5  6  2  0
+  6  1  1  0
+M  END
+$$$$
+"""
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.sdf', delete=False) as f:
+        f.write(sdf_content)
+        sdf_path = f.name
+    
+    yield sdf_path
+    
+    # Cleanup
+    os.unlink(sdf_path)
