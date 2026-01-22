@@ -93,6 +93,41 @@ class TestBackboneVectors:
             assert np.allclose(norms[non_zero], 1.0, atol=1e-5)
 
 
+class TestBackwardVectors:
+    """Tests for get_backward_vectors function."""
+
+    def test_backward_vectors_unit(self, temp_pdb_file):
+        """Test that backward vectors are unit vectors."""
+        from Bio.PDB import PDBParser
+        
+        parser = PDBParser(QUIET=True)
+        structure = parser.get_structure('test', temp_pdb_file)
+        
+        backward = ppgvp.get_backward_vectors(structure)
+        
+        if len(backward) > 0:
+            norms = np.linalg.norm(backward, axis=1)
+            non_zero = norms > 0.1
+            assert np.allclose(norms[non_zero], 1.0, atol=1e-5)
+
+    def test_backward_opposite_to_forward(self, temp_pdb_file):
+        """Test that backward vectors point roughly opposite to forward."""
+        from Bio.PDB import PDBParser
+        
+        parser = PDBParser(QUIET=True)
+        structure = parser.get_structure('test', temp_pdb_file)
+        
+        forward = ppgvp.get_backbone_vectors(structure)
+        backward = ppgvp.get_backward_vectors(structure)
+        
+        if len(forward) > 2:
+            # Middle residues should have opposing directions
+            # (approximate check - not exact due to chain geometry)
+            dots = np.sum(forward[1:-1] * backward[1:-1], axis=1)
+            # Most should be negative (opposite direction)
+            assert np.mean(dots) < 0
+
+
 class TestGvpNodeFeatures:
     """Tests for get_gvp_node_features function."""
 
@@ -107,7 +142,7 @@ class TestGvpNodeFeatures:
         
         assert coords.shape[1] == 3
         if len(coords) > 0:
-            assert vectors.shape == (len(coords), 3, 3)
+            assert vectors.shape == (len(coords), 4, 3)  # 4 vectors now
 
 
 class TestBuildKnnEdges:

@@ -8,11 +8,21 @@ __email__="jianfeng.sunmt@gmail.com"
 from typing import List, Dict
 import numpy as np
 
-from pypropel.prot.feature.sequence.AminoAcidProperty import AminoAcidProperty as aaprop
-from pypropel.prot.feature.sequence.AminoAcidRepresentation import AminoAcidRepresentation as aarepr
-from pypropel.prot.feature.sequence.Position import Position
-from pypropel.prot.feature.rsa.Reader import Reader as rsareader
-from pypropel.prot.feature.ss.Reader import Reader as ssreader
+# Optional imports - may not be available in standalone mode
+try:
+    from pypropel.prot.feature.sequence.AminoAcidProperty import AminoAcidProperty as aaprop
+    from pypropel.prot.feature.sequence.AminoAcidRepresentation import AminoAcidRepresentation as aarepr
+    from pypropel.prot.feature.sequence.Position import Position
+    from pypropel.prot.feature.rsa.Reader import Reader as rsareader
+    from pypropel.prot.feature.ss.Reader import Reader as ssreader
+    _PYPROPEL_CORE_AVAILABLE = True
+except ImportError:
+    _PYPROPEL_CORE_AVAILABLE = False
+    aaprop = None
+    aarepr = None
+    Position = None
+    rsareader = None
+    ssreader = None
 
 
 # ==================== Amino Acid Mappings ====================
