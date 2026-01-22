@@ -224,6 +224,51 @@ def get_backbone_vectors(structure, chain_id: str = None) -> np.ndarray:
     return (vectors / norms).astype(np.float32)
 
 
+def get_backward_vectors(structure, chain_id: str = None) -> np.ndarray:
+    """
+    Extract backward backbone vectors (Cα[i]→Cα[i-1] unit vectors).
+    
+    These vectors point backward along the backbone chain.
+    The first residue uses the vector from the next residue.
+    
+    Parameters
+    ----------
+    structure : Bio.PDB.Structure.Structure
+        BioPython structure object.
+    chain_id : str, optional
+        Chain ID to extract. If None, extracts all chains.
+        
+    Returns
+    -------
+    np.ndarray
+        Unit vectors with shape (N_residues, 3).
+        
+    Examples
+    --------
+    >>> backward = ppgvp.get_backward_vectors(structure)
+    >>> print(backward.shape)  # (N_residues, 3)
+    """
+    ca_coords = get_ca_coords(structure, chain_id)
+    n = len(ca_coords)
+    
+    if n == 0:
+        return np.zeros((0, 3), dtype=np.float32)
+    
+    if n == 1:
+        return np.zeros((1, 3), dtype=np.float32)
+    
+    # Compute Cα[i]→Cα[i-1] vectors (points backward)
+    vectors = np.zeros((n, 3), dtype=np.float32)
+    vectors[1:] = ca_coords[:-1] - ca_coords[1:]
+    vectors[0] = vectors[1]  # First residue uses next vector
+    
+    # Normalize to unit vectors
+    norms = np.linalg.norm(vectors, axis=1, keepdims=True)
+    norms = np.maximum(norms, 1e-8)
+    
+    return (vectors / norms).astype(np.float32)
+
+
 def get_neighbor_center_vectors(
     structure, 
     k: int = 10, 
@@ -310,30 +355,32 @@ def get_gvp_node_features(
     -------
     Tuple[np.ndarray, np.ndarray]
         - node_coords: Shape (N, 3) - Cα coordinates
-        - vector_features: Shape (N, 3, 3) - 3 vector features per residue:
-          [sidechain_orientation, backbone_flow, neighbor_center]
+        - vector_features: Shape (N, 4, 3) - 4 vector features per residue:
+          [sidechain_orientation, backbone_forward, backbone_backward, neighbor_center]
         
     Examples
     --------
     >>> coords, vectors = ppgvp.get_gvp_node_features(structure, k_neighbors=10)
     >>> print(coords.shape)    # (N_residues, 3)
-    >>> print(vectors.shape)   # (N_residues, 3, 3)
+    >>> print(vectors.shape)   # (N_residues, 4, 3)
     """
     ca_coords = get_ca_coords(structure, chain_id)
     
     if len(ca_coords) == 0:
-        return np.zeros((0, 3), dtype=np.float32), np.zeros((0, 3, 3), dtype=np.float32)
+        return np.zeros((0, 3), dtype=np.float32), np.zeros((0, 4, 3), dtype=np.float32)
     
     # Get all vector features
     sidechain_orient = get_residue_orientations(structure, chain_id)
-    backbone_flow = get_backbone_vectors(structure, chain_id)
+    backbone_forward = get_backbone_vectors(structure, chain_id)
+    backbone_backward = get_backward_vectors(structure, chain_id)
     neighbor_center = get_neighbor_center_vectors(structure, k_neighbors, chain_id)
     
-    # Stack into (N, 3, 3) - 3 vectors of dimension 3 each
+    # Stack into (N, 4, 3) - 4 vectors of dimension 3 each
     vector_features = np.stack([
-        sidechain_orient,
-        backbone_flow,
-        neighbor_center
+        sidechain_orient,     # Cα→Cβ
+        backbone_forward,     # Cα→Cα_next
+        backbone_backward,    # Cα→Cα_prev (NEW)
+        neighbor_center       # Cα→neighbors_mean
     ], axis=1)
     
     return ca_coords, vector_features

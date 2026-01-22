@@ -547,8 +547,159 @@ def get_ligand_global_features(mol) -> np.ndarray:
     return np.concatenate([basic_feat, morgan_feat]).astype(np.float32)
 
 
+def get_atom_ring_sizes(mol) -> np.ndarray:
+    """
+    Get ring size for each atom (0 if not in ring).
+    
+    Parameters
+    ----------
+    mol : rdkit.Chem.rdchem.Mol
+        RDKit molecule object.
+        
+    Returns
+    -------
+    np.ndarray
+        Ring sizes, shape (N_atoms, 1).
+    """
+    if mol is None:
+        return np.zeros((0, 1), dtype=np.float32)
+    
+    n_atoms = mol.GetNumAtoms()
+    features = np.zeros((n_atoms, 1), dtype=np.float32)
+    
+    ring_info = mol.GetRingInfo()
+    atom_rings = ring_info.AtomRings()
+    
+    for ring in atom_rings:
+        ring_size = len(ring)
+        for atom_idx in ring:
+            # Keep the smallest ring size for each atom
+            if features[atom_idx, 0] == 0 or ring_size < features[atom_idx, 0]:
+                features[atom_idx, 0] = ring_size
+    
+    return features
+
+
+def get_global_tag(mol, output_dim: int = 45) -> np.ndarray:
+    """
+    Get global tag features to append to every atom.
+    
+    Uses first 45 dims of compressed Morgan fingerprint + LogP + TPSA.
+    
+    Parameters
+    ----------
+    mol : rdkit.Chem.rdchem.Mol
+        RDKit molecule object.
+    output_dim : int
+        Dimension of global tag (default 45).
+        
+    Returns
+    -------
+    np.ndarray
+        Global tag, shape (output_dim,).
+    """
+    if not RDKIT_AVAILABLE:
+        return np.zeros(output_dim, dtype=np.float32)
+    
+    from rdkit.Chem import Descriptors
+    
+    if mol is None:
+        return np.zeros(output_dim, dtype=np.float32)
+    
+    # Get compressed Morgan FP (first output_dim-2 dims)
+    morgan = get_morgan_fingerprint_compressed(mol, output_dim=output_dim - 2)
+    
+    # Add LogP and TPSA
+    try:
+        logp = Descriptors.MolLogP(mol)
+        tpsa = Descriptors.TPSA(mol) / 100.0  # Normalize
+    except:
+        logp = 0.0
+        tpsa = 0.0
+    
+    result = np.zeros(output_dim, dtype=np.float32)
+    result[:output_dim - 2] = morgan
+    result[output_dim - 2] = logp
+    result[output_dim - 1] = tpsa
+    
+    return result
+
+
+def get_atom_features_extended(mol, global_tag_dim: int = 45) -> np.ndarray:
+    """
+    Get extended atom-level features for GVP-Fusion model (d=64).
+    
+    Feature breakdown:
+    - [0-9] Atom type one-hot (10): C, N, O, S, F, P, Cl, Br, I, Other
+    - [10-13] Hybridization (4): SP, SP2, SP3, Aromatic
+    - [14] Aromaticity (1): Binary
+    - [15] Is_Donor (1): Binary
+    - [16] Is_Acceptor (1): Binary
+    - [17] Gasteiger Charge (1): Float
+    - [18] Ring Size (1): Integer (0 if not in ring)
+    - [19-63] Global Tag (45): Morgan FP + LogP + TPSA
+    
+    Parameters
+    ----------
+    mol : rdkit.Chem.rdchem.Mol
+        RDKit molecule object.
+    global_tag_dim : int
+        Dimension of global tag (default 45).
+        
+    Returns
+    -------
+    np.ndarray
+        Extended features, shape (N_atoms, 64).
+        
+    Examples
+    --------
+    >>> atom_features = ppmol.get_atom_features_extended(mol)
+    >>> print(atom_features.shape)  # (N_atoms, 64)
+    """
+    if mol is None:
+        return np.zeros((0, 64), dtype=np.float32)
+    
+    n_atoms = mol.GetNumAtoms()
+    features = np.zeros((n_atoms, 64), dtype=np.float32)
+    
+    # [0-9] Atom type one-hot
+    type_feat = get_atom_type_onehot(mol)  # (N, 10)
+    features[:, 0:10] = type_feat
+    
+    # [10-13] Hybridization (compressed to 4 dims: SP, SP2, SP3, Aromatic)
+    hybrid_full = get_atom_hybridization(mol)  # (N, 7)
+    # Map: SP=0, SP2=1, SP3=2, Aromatic=5 -> indices 0,1,2,3
+    features[:, 10] = hybrid_full[:, 0]  # SP
+    features[:, 11] = hybrid_full[:, 1]  # SP2
+    features[:, 12] = hybrid_full[:, 2]  # SP3
+    features[:, 13] = hybrid_full[:, 5]  # Aromatic
+    
+    # [14] Aromaticity
+    arom_feat = get_atom_aromaticity(mol)  # (N, 1)
+    features[:, 14:15] = arom_feat
+    
+    # [15-16] H-bond donor/acceptor
+    hbond_feat = get_atom_hbond_features(mol)  # (N, 2)
+    features[:, 15:17] = hbond_feat
+    
+    # [17] Gasteiger charge
+    charge_feat = get_atom_partial_charges(mol)  # (N, 1)
+    features[:, 17:18] = charge_feat
+    
+    # [18] Ring size
+    ring_feat = get_atom_ring_sizes(mol)  # (N, 1)
+    features[:, 18:19] = ring_feat
+    
+    # [19-63] Global tag (repeated for all atoms)
+    global_tag = get_global_tag(mol, output_dim=global_tag_dim)  # (45,)
+    features[:, 19:19 + global_tag_dim] = global_tag[None, :]  # Broadcast
+    
+    return features.astype(np.float32)
+
+
 if __name__ == "__main__":
     # Quick test
     print("mol.py module loaded successfully")
     print(f"RDKit available: {RDKIT_AVAILABLE}")
+
 

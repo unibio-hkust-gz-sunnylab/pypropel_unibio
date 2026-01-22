@@ -688,6 +688,122 @@ def get_structure_features_dssp(structure, chain_id: str = None) -> Dict[str, np
     }
 
 
+# ==================== Aromatic Amino Acids ====================
+
+AROMATIC_AAS = {'PHE', 'TYR', 'TRP', 'HIS'}
+
+# H-bond donor/acceptor counts in sidechains
+HBOND_DONOR_COUNT = {
+    'ARG': 3, 'ASN': 1, 'GLN': 1, 'HIS': 1, 'LYS': 1,
+    'SER': 1, 'THR': 1, 'TRP': 1, 'TYR': 1, 'CYS': 1
+}
+
+HBOND_ACCEPTOR_COUNT = {
+    'ASN': 1, 'ASP': 2, 'GLN': 1, 'GLU': 2, 'HIS': 1,
+    'SER': 1, 'THR': 1, 'TYR': 1
+}
+
+
+def get_protein_scalar_features(
+    structure,
+    chain_id: str = None,
+    use_dssp: bool = True
+) -> np.ndarray:
+    """
+    Extract protein scalar features for GVP-Fusion model.
+    
+    Returns 35-dimensional feature vector per residue:
+    - AA one-hot (PSSM placeholder): 20 dims [0-19]
+    - Secondary structure one-hot: 3 dims [20-22]
+    - SASA (normalized): 1 dim [23]
+    - Charge: 1 dim [24]
+    - Hydrophobicity: 1 dim [25]
+    - Is_Aromatic: 1 dim [26]
+    - H-Bond Donor count: 1 dim [27]
+    - H-Bond Acceptor count: 1 dim [28]
+    - Reserved/padding: 6 dims [29-34]
+    
+    Parameters
+    ----------
+    structure : Bio.PDB.Structure.Structure
+        BioPython structure object.
+    chain_id : str, optional
+        Chain ID to extract.
+    use_dssp : bool
+        If True, use DSSP for SASA and SS. If False, use zeros.
+        
+    Returns
+    -------
+    np.ndarray
+        Feature matrix with shape (N_residues, 35).
+        
+    Examples
+    --------
+    >>> features = fpsite.get_protein_scalar_features(structure)
+    >>> print(features.shape)  # (N_residues, 35)
+    """
+    from Bio.PDB import Polypeptide
+    
+    # Collect residue info
+    residues = []
+    res_names = []
+    for model in structure:
+        for chain in model:
+            if chain_id is not None and chain.get_id() != chain_id:
+                continue
+            for residue in chain:
+                if Polypeptide.is_aa(residue, standard=True):
+                    residues.append(residue)
+                    res_names.append(residue.get_resname())
+    
+    n = len(residues)
+    if n == 0:
+        return np.zeros((0, 35), dtype=np.float32)
+    
+    # Initialize feature matrix
+    features = np.zeros((n, 35), dtype=np.float32)
+    
+    # [0-19] AA one-hot (PSSM placeholder)
+    for i, res_name in enumerate(res_names):
+        one_hot = residue_one_hot(res_name)
+        features[i, 0:20] = one_hot
+    
+    # [20-22] Secondary structure + [23] SASA
+    if use_dssp:
+        try:
+            dssp_data = get_residue_sasa(structure, chain_id)
+            # Map DSSP results to residues by position
+            for i, d in enumerate(dssp_data):
+                if i < n:
+                    # SS one-hot
+                    features[i, 20:23] = residue_secondary_structure(d['ss'])
+                    # SASA (already normalized 0-1)
+                    features[i, 23] = d['sasa']
+        except Exception:
+            # DSSP failed, leave as zeros
+            pass
+    
+    # [24] Charge, [25] Hydrophobicity
+    for i, res_name in enumerate(res_names):
+        physchem = residue_physchem(res_name)
+        features[i, 24] = physchem[0]  # Charge
+        features[i, 25] = (physchem[1] + 1.0) / 2.0  # Normalize hydro to [0,1]
+    
+    # [26] Is_Aromatic
+    for i, res_name in enumerate(res_names):
+        features[i, 26] = 1.0 if res_name in AROMATIC_AAS else 0.0
+    
+    # [27] H-Bond Donor count, [28] H-Bond Acceptor count
+    for i, res_name in enumerate(res_names):
+        features[i, 27] = HBOND_DONOR_COUNT.get(res_name, 0)
+        features[i, 28] = HBOND_ACCEPTOR_COUNT.get(res_name, 0)
+    
+    # [29-34] Reserved (zeros)
+    # Already initialized to zeros
+    
+    return features.astype(np.float32)
+
+
 # ==================== Existing Functions ====================
 
 
