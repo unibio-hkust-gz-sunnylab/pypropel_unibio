@@ -20,6 +20,7 @@ from . import (
     mol,
     gvp,
     graph,
+    features,
 )
 
 # ESM is optional (requires fair-esm)

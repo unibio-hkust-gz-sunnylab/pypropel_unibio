@@ -46,14 +46,15 @@ import pypropel.gvp as ppgvp
 ca_coords = ppgvp.get_ca_coords(structure)    # Shape: (N, 3)
 cb_coords = ppgvp.get_cb_coords(structure)    # Shape: (N, 3) (virtual for GLY)
 
-# Vector features for GVP encoder
+# Vector features for GVP encoder (4 vectors)
 sidechain = ppgvp.get_residue_orientations(structure)      # Cα→Cβ unit vectors
-backbone = ppgvp.get_backbone_vectors(structure)           # Cα[i]→Cα[i+1]
+forward = ppgvp.get_backbone_vectors(structure)            # Cα[i]→Cα[i+1]
+backward = ppgvp.get_backward_vectors(structure)           # Cα[i]→Cα[i-1]
 neighbors = ppgvp.get_neighbor_center_vectors(structure, k=10)  # Cα→neighbor center
 
-# Combined GVP features
+# Combined GVP features (4 vectors per residue)
 coords, vectors = ppgvp.get_gvp_node_features(structure, k_neighbors=10)
-# coords: (N, 3), vectors: (N, 3, 3) - 3 unit vectors per residue
+# coords: (N, 3), vectors: (N, 4, 3) - 4 unit vectors per residue
 
 # k-NN graph edges
 edge_index, distances = ppgvp.build_knn_edges(coords, k=20, radius=10.0)
@@ -194,6 +195,105 @@ pocket_df = ppdist.extract_binding_pocket(
     structure, ligand_coords,
     binding_threshold=5.0, non_binding_threshold=8.0
 )
+```
+
+---
+
+### `pypropel.features` - Unified Feature Extraction (NEW)
+
+Configurable, general-purpose feature extraction functions:
+
+```python
+import pypropel.features as ppfeat
+
+# List available feature classes
+print(ppfeat.list_feature_classes('protein'))
+# {'onehot': 20, 'ss': 3, 'sasa': 1, 'charge': 1, ...}
+
+print(ppfeat.list_feature_classes('ligand'))
+# {'atom_type': 10, 'hybridization': 4, 'aromaticity': 1, ...}
+
+# Protein features - configurable
+features = ppfeat.get_protein_features(
+    structure,
+    feature_classes=['onehot', 'ss', 'sasa', 'charge', 'hydrophobicity'],
+    include_gvp=True,      # Include GVP vector features
+    use_dssp=True          # Use DSSP for SS and SASA
+)
+# Returns: {
+#   'scalar_features': (N, 26) - Combined scalar features
+#   'gvp_coords': (N, 3) - Cα coordinates  
+#   'gvp_vectors': (N, 4, 3) - 4 GVP vectors
+#   'feature_dims': {'onehot': (0, 20), 'ss': (20, 23), ...}
+# }
+
+# Ligand features - configurable
+features = ppfeat.get_ligand_features(
+    mol,
+    include_global_tag=True,  # Append global FP to each atom
+    global_tag_dim=45
+)
+# Returns: {
+#   'atom_features': (M, 64) - Combined atom features
+#   'coords': (M, 3) - Atom coordinates
+#   'feature_dims': {'atom_type': (0, 10), ...}
+# }
+
+# Binding labels - configurable thresholds
+labels = ppfeat.get_binding_labels(
+    structure, ligand_coords,
+    thresholds=[3.5, 6.0]  # 3-class: Contact/Near/Far
+)
+# Returns: {'labels': (N,), 'distances': (N,), 'class_weights': (3,)}
+```
+
+---
+
+### Extended Atom Features (64-dim)
+
+```python
+import pypropel.mol as ppmol
+
+# Extended atom features for GVP-Fusion v2 (64 dimensions)
+atom_features = ppmol.get_atom_features_extended(mol, global_tag_dim=45)
+# Shape: (N_atoms, 64)
+# Breakdown:
+#   [0-9]   Atom type one-hot (10): C, N, O, S, F, P, Cl, Br, I, Other
+#   [10-13] Hybridization (4): SP, SP2, SP3, Aromatic
+#   [14]    Aromaticity (1): Binary
+#   [15]    Is_Donor (1): Binary
+#   [16]    Is_Acceptor (1): Binary
+#   [17]    Gasteiger Charge (1): Float
+#   [18]    Ring Size (1): Integer (0 if not in ring)
+#   [19-63] Global Tag (45): Morgan FP + LogP + TPSA
+
+# Ring size per atom
+ring_sizes = ppmol.get_atom_ring_sizes(mol)  # Shape: (N, 1)
+
+# Global tag (molecular fingerprint for each atom)
+global_tag = ppmol.get_global_tag(mol, output_dim=45)  # Shape: (45,)
+```
+
+---
+
+### Protein Scalar Features (35-dim)
+
+```python
+import pypropel.fpsite as fpsite
+
+# Full scalar features for GVP-Fusion v2 (35 dimensions)
+features = fpsite.get_protein_scalar_features(structure, use_dssp=True)
+# Shape: (N_residues, 35)
+# Breakdown:
+#   [0-19]  AA one-hot (20)
+#   [20-22] Secondary structure one-hot (3): Helix/Sheet/Coil
+#   [23]    SASA normalized (1)
+#   [24]    Charge (1)
+#   [25]    Hydrophobicity normalized (1)
+#   [26]    Is_Aromatic (1): Phe/Tyr/Trp/His
+#   [27]    H-Bond Donor count (1)
+#   [28]    H-Bond Acceptor count (1)
+#   [29-34] Reserved/padding (6)
 ```
 
 ---
