@@ -331,6 +331,193 @@ def get_neighbor_center_vectors(
     return vectors.astype(np.float32)
 
 
+# ==================== Multi-Chain Support Functions ====================
+
+def get_chain_ids(structure, chain_id: str = None) -> np.ndarray:
+    """
+    Extract chain ID for each residue as integer indices.
+    
+    Maps chain IDs (e.g., 'A', 'B', 'C') to sequential integers (0, 1, 2).
+    
+    Parameters
+    ----------
+    structure : Bio.PDB.Structure.Structure
+        BioPython structure object.
+    chain_id : str, optional
+        Chain ID to extract. If None, extracts all chains.
+        
+    Returns
+    -------
+    np.ndarray
+        Chain indices with shape (N_residues,), dtype int64.
+        
+    Examples
+    --------
+    >>> chain_ids = ppgvp.get_chain_ids(structure)
+    >>> print(chain_ids)  # e.g., [0, 0, 0, 1, 1, 1, 2, 2]
+    """
+    from Bio.PDB import Polypeptide
+    
+    chain_indices = []
+    chain_map = {}  # Maps chain ID strings to integers
+    
+    for model in structure:
+        for chain in model:
+            if chain_id is not None and chain.get_id() != chain_id:
+                continue
+            cid = chain.get_id()
+            if cid not in chain_map:
+                chain_map[cid] = len(chain_map)
+            
+            for residue in chain:
+                if Polypeptide.is_aa(residue, standard=True):
+                    if 'CA' in residue:  # Only count residues with CA
+                        chain_indices.append(chain_map[cid])
+    
+    return np.array(chain_indices, dtype=np.int64) if chain_indices else np.zeros(0, dtype=np.int64)
+
+
+def get_global_centered_coords(structure, chain_id: str = None) -> np.ndarray:
+    """
+    Extract Cα coordinates centered at the protein's mean position.
+    
+    Subtracts the global centroid from all Cα coordinates, providing
+    translation-invariant coordinates with the protein center as origin.
+    
+    Parameters
+    ----------
+    structure : Bio.PDB.Structure.Structure
+        BioPython structure object.
+    chain_id : str, optional
+        Chain ID to extract. If None, extracts all chains.
+        
+    Returns
+    -------
+    np.ndarray
+        Centered Cα coordinates with shape (N_residues, 3).
+        
+    Examples
+    --------
+    >>> centered = ppgvp.get_global_centered_coords(structure)
+    >>> print(centered.mean(axis=0))  # Should be ~[0, 0, 0]
+    """
+    ca_coords = get_ca_coords(structure, chain_id)
+    
+    if len(ca_coords) == 0:
+        return np.zeros((0, 3), dtype=np.float32)
+    
+    # Compute global centroid
+    centroid = ca_coords.mean(axis=0)
+    
+    # Center coordinates
+    centered = ca_coords - centroid
+    
+    return centered.astype(np.float32)
+
+
+def get_chain_centered_coords(structure, chain_id: str = None) -> np.ndarray:
+    """
+    Extract Cα coordinates centered at each chain's mean position.
+    
+    Each residue is centered relative to its own chain's centroid.
+    For single-chain proteins, this is identical to global centering.
+    
+    Parameters
+    ----------
+    structure : Bio.PDB.Structure.Structure
+        BioPython structure object.
+    chain_id : str, optional
+        Chain ID to extract. If None, extracts all chains.
+        
+    Returns
+    -------
+    np.ndarray
+        Chain-centered Cα coordinates with shape (N_residues, 3).
+        
+    Examples
+    --------
+    >>> chain_centered = ppgvp.get_chain_centered_coords(structure)
+    """
+    ca_coords = get_ca_coords(structure, chain_id)
+    chain_ids = get_chain_ids(structure, chain_id)
+    
+    if len(ca_coords) == 0:
+        return np.zeros((0, 3), dtype=np.float32)
+    
+    centered = np.zeros_like(ca_coords)
+    
+    # Center each chain independently
+    unique_chains = np.unique(chain_ids)
+    for cid in unique_chains:
+        mask = chain_ids == cid
+        chain_coords = ca_coords[mask]
+        chain_centroid = chain_coords.mean(axis=0)
+        centered[mask] = chain_coords - chain_centroid
+    
+    return centered.astype(np.float32)
+
+
+def get_knn_direction_vectors(
+    structure, 
+    k: int = 10, 
+    chain_id: str = None
+) -> np.ndarray:
+    """
+    Extract direction vectors from each Cα to its k-nearest neighbors.
+    
+    Returns unit vectors pointing from each residue toward each of its
+    k nearest neighbors, providing rich local geometric context.
+    
+    Parameters
+    ----------
+    structure : Bio.PDB.Structure.Structure
+        BioPython structure object.
+    k : int
+        Number of nearest neighbors.
+    chain_id : str, optional
+        Chain ID to extract. If None, extracts all chains.
+        
+    Returns
+    -------
+    np.ndarray
+        Direction vectors with shape (N_residues, k, 3).
+        If fewer than k neighbors exist, remaining vectors are zero.
+        
+    Examples
+    --------
+    >>> knn_dirs = ppgvp.get_knn_direction_vectors(structure, k=10)
+    >>> print(knn_dirs.shape)  # (N_residues, 10, 3)
+    """
+    ca_coords = get_ca_coords(structure, chain_id)
+    n = len(ca_coords)
+    
+    if n == 0:
+        return np.zeros((0, k, 3), dtype=np.float32)
+    
+    # Initialize output: (N, k, 3)
+    directions = np.zeros((n, k, 3), dtype=np.float32)
+    
+    # Compute pairwise distance matrix
+    diff = ca_coords[:, None, :] - ca_coords[None, :, :]  # (N, N, 3)
+    dist_matrix = np.linalg.norm(diff, axis=2)  # (N, N)
+    
+    for i in range(n):
+        dists = dist_matrix[i]
+        
+        # Get k nearest neighbors (excluding self)
+        k_actual = min(k, n - 1)
+        sorted_indices = np.argsort(dists)[1:k_actual + 1]  # Skip index 0 (self)
+        
+        for j_idx, neighbor_idx in enumerate(sorted_indices):
+            # Vector from i to neighbor
+            vec = ca_coords[neighbor_idx] - ca_coords[i]
+            norm = np.linalg.norm(vec)
+            if norm > 1e-8:
+                directions[i, j_idx] = vec / norm
+    
+    return directions
+
+
 def get_gvp_node_features(
     structure, 
     k_neighbors: int = 10,
