@@ -23,6 +23,7 @@ pytest = "^8.0.0"
 pytest-cov = "^4.1.0"
 ruff = "^0.3.0"
 mypy = "^1.8.0"
+torch = ">=2.0.0"
 
 [tool.poetry.scripts]
 pypropel_struct_check_cplx = "pypropel.prot.structure.distance.isite.check.Complex:cli"
