@@ -146,6 +146,12 @@ class TestKnnDirectionVectors:
             assert np.allclose(norms[non_zero], 1.0, atol=1e-5)
 
 
+# Check if chain_encoding.py exists (it's in protein_ligand repo, not pypropel_unibio)
+_chain_encoding_path = os.path.join(os.path.dirname(_pypropel_dir), 'src', 'models', 'chain_encoding.py')
+_HAS_CHAIN_ENCODING = os.path.exists(_chain_encoding_path)
+
+
+@pytest.mark.skipif(not _HAS_CHAIN_ENCODING, reason="chain_encoding.py not found (standalone pypropel_unibio)")
 class TestChainEncoding:
     """Tests for chain_encoding module functions."""
 
