@@ -377,8 +377,8 @@ def get_atom_partial_charges(mol) -> np.ndarray:
     
     for i, atom in enumerate(mol.GetAtoms()):
         charge = atom.GetDoubleProp('_GasteigerCharge')
-        # Handle NaN values
-        if np.isnan(charge):
+        # Handle NaN and Inf values (common in phosphate/sulfur-containing molecules)
+        if not np.isfinite(charge):
             charge = 0.0
         features[i, 0] = charge
     
