@@ -6,6 +6,7 @@ This module provides:
 - Model interface: PBModel (abstract base class)
 - Metrics: DCC, DCA, IoU, AP
 - Dataset loaders: COACH420, HOLO4K, UniSite-DS, CryptoBench
+- Model wrappers: P2Rank
 """
 
 __version__ = "0.1.0"
@@ -26,6 +27,10 @@ from .metrics import (
     expand_center_to_residues,
 )
 
+# Lazy imports for datasets and models
+from . import datasets
+from . import models
+
 __all__ = [
     # Core dataclasses
     "PBProtein",
@@ -38,4 +43,8 @@ __all__ = [
     "compute_iou",
     "compute_ap",
     "expand_center_to_residues",
+    # Subpackages
+    "datasets",
+    "models",
 ]
+
