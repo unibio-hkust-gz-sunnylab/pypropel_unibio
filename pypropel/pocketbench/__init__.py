@@ -1,0 +1,41 @@
+"""
+PocketBench: Unified benchmarking for protein-ligand binding site prediction.
+
+This module provides:
+- Core dataclasses: PBProtein, PBSite, PBPrediction
+- Model interface: PBModel (abstract base class)
+- Metrics: DCC, DCA, IoU, AP
+- Dataset loaders: COACH420, HOLO4K, UniSite-DS, CryptoBench
+"""
+
+__version__ = "0.1.0"
+__author__ = "pypropel team"
+
+from .core import (
+    PBProtein,
+    PBSite,
+    PBPrediction,
+    PBModel,
+)
+
+from .metrics import (
+    compute_dcc,
+    compute_dca,
+    compute_iou,
+    compute_ap,
+    expand_center_to_residues,
+)
+
+__all__ = [
+    # Core dataclasses
+    "PBProtein",
+    "PBSite", 
+    "PBPrediction",
+    "PBModel",
+    # Metrics
+    "compute_dcc",
+    "compute_dca",
+    "compute_iou",
+    "compute_ap",
+    "expand_center_to_residues",
+]

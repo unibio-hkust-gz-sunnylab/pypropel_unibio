@@ -28,3 +28,9 @@ try:
     from . import esm
 except ImportError:
     pass
+
+# PocketBench is optional (for binding site benchmarking)
+try:
+    from . import pocketbench
+except ImportError:
+    pass
