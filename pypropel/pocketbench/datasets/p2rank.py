@@ -46,8 +46,14 @@ class P2RankDataset(PBDataset):
         root: Optional[Union[str, Path]] = None,
         download: bool = False
     ):
-        super().__init__(root, download)
+        if root is None:
+            root = Path.home() / ".pocketbench" / "datasets"
+        
+        self.root = Path(root)
         self._dataset_dir = self.root / "p2rank-datasets-master"
+        
+        # Now call super, which handles directory creation and download
+        super().__init__(root, download)
     
     def _check_exists(self) -> bool:
         """Check if dataset files exist."""
@@ -61,6 +67,8 @@ class P2RankDataset(PBDataset):
         print(f"Downloading p2rank-datasets to {self.root}...")
         
         # Download ZIP
+        import ssl
+        ssl._create_default_https_context = ssl._create_unverified_context
         urllib.request.urlretrieve(P2RANK_RELEASE_URL, zip_path)
         
         # Extract
