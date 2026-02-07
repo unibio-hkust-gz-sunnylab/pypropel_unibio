@@ -64,12 +64,34 @@ class P2RankDataset(PBDataset):
         """Download p2rank-datasets from GitHub."""
         zip_path = self.root / "p2rank-datasets.zip"
         
+        # Clean up corrupted file if exists
+        if zip_path.exists():
+            zip_path.unlink()
+        
         print(f"Downloading p2rank-datasets to {self.root}...")
         
-        # Download ZIP
-        import ssl
-        ssl._create_default_https_context = ssl._create_unverified_context
-        urllib.request.urlretrieve(P2RANK_RELEASE_URL, zip_path)
+        # Use requests for better redirect handling
+        try:
+            import requests
+            response = requests.get(P2RANK_RELEASE_URL, stream=True, timeout=300)
+            response.raise_for_status()
+            
+            with open(zip_path, 'wb') as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    f.write(chunk)
+        except ImportError:
+            # Fallback to urllib with SSL bypass
+            import ssl
+            ssl._create_default_https_context = ssl._create_unverified_context
+            urllib.request.urlretrieve(P2RANK_RELEASE_URL, zip_path)
+        
+        # Validate zip file
+        if not zipfile.is_zipfile(zip_path):
+            zip_path.unlink()
+            raise RuntimeError(
+                f"Downloaded file is not a valid ZIP. "
+                f"Please download manually from {P2RANK_REPO_URL}"
+            )
         
         # Extract
         print("Extracting...")
