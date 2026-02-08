@@ -168,7 +168,14 @@ class P2RankDataset(PBDataset):
             Loaded protein or None if failed.
         """
         from Bio.PDB import PDBParser
-        from Bio.PDB.Polypeptide import is_aa, three_to_one
+        from Bio.PDB.Polypeptide import is_aa
+        # Handle BioPython version differences (three_to_one moved in 1.84+)
+        try:
+            from Bio.PDB.Polypeptide import three_to_one
+        except ImportError:
+            from Bio.Data.IUPACData import protein_letters_3to1
+            def three_to_one(res_name):
+                return protein_letters_3to1.get(res_name.capitalize(), 'X')
         
         parser = PDBParser(QUIET=True)
         structure = parser.get_structure(pdb_path.stem, pdb_path)
