@@ -111,7 +111,8 @@ class P2RankDataset(PBDataset):
             )
         
         ds_path = self._dataset_dir / self._ds_file
-        pdb_dir = self._dataset_dir / self._pdb_subdir
+        # Note: .ds file contains paths like "coach420/148lE.pdb" relative to dataset root
+        pdb_base_dir = self._dataset_dir
         
         proteins = []
         
@@ -131,7 +132,7 @@ class P2RankDataset(PBDataset):
                 ligand_codes = parts[1:] if len(parts) > 1 else []
                 
                 # Load protein
-                pdb_path = pdb_dir / pdb_file
+                pdb_path = pdb_base_dir / pdb_file
                 if not pdb_path.exists():
                     print(f"Warning: PDB not found: {pdb_path}")
                     continue
