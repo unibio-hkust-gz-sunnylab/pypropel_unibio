@@ -95,13 +95,18 @@ class UniSiteDSDataset(PBDataset):
         return f"UniSite-DS ({self.split})"
     
     def _check_exists(self) -> bool:
-        """Check if dataset files exist."""
+        """Check if dataset files exist, extracting archives if needed."""
         # Check both possible structures:
         # 1. HuggingFace download: files directly in root
         # 2. Manual extraction: files in pkl_files subdirectory
         
-        # Try pkl_files subdirectory first (manual extract)
+        # First, try to extract archives if they exist but aren't extracted
+        main_archive = self.root / "unisite-ds-v1.tar.gz"
         pkl_dir = self.root / "pkl_files"
+        if main_archive.exists() and not pkl_dir.exists():
+            self._extract_archives()
+        
+        # Try pkl_files subdirectory first (manual extract)
         if not pkl_dir.exists():
             # Fallback: check if pkl_files is at root level (some HF downloads)
             pkl_dir = self.root
@@ -114,7 +119,7 @@ class UniSiteDSDataset(PBDataset):
         return split_file.exists()
     
     def download(self):
-        """Download dataset from HuggingFace."""
+        """Download dataset from HuggingFace and extract archives."""
         try:
             from huggingface_hub import snapshot_download
         except ImportError:
@@ -143,6 +148,33 @@ class UniSiteDSDataset(PBDataset):
                 f"Failed to download UniSite-DS: {e}\n"
                 f"You can manually download from: {UNISITE_HF_URL}"
             )
+        
+        # Extract archives
+        self._extract_archives()
+    
+    def _extract_archives(self):
+        """Extract tar.gz archives if they exist."""
+        import tarfile
+        
+        # Main dataset archive
+        main_archive = self.root / "unisite-ds-v1.tar.gz"
+        if main_archive.exists():
+            pkl_dir = self.root / "pkl_files"
+            if not pkl_dir.exists():
+                print(f"Extracting {main_archive.name}...")
+                with tarfile.open(main_archive, 'r:gz') as tar:
+                    tar.extractall(path=self.root)
+                print(f"Extracted to {self.root}")
+        
+        # Benchmark datasets archive
+        bench_archive = self.root / "benchmark_datasets.tar.gz"
+        if bench_archive.exists():
+            bench_dir = self.root / "benchmark_datasets"
+            if not bench_dir.exists():
+                print(f"Extracting {bench_archive.name}...")
+                with tarfile.open(bench_archive, 'r:gz') as tar:
+                    tar.extractall(path=self.root)
+                print(f"Extracted benchmark datasets")
     
     def _load(self) -> List[PBProtein]:
         """Load proteins from PKL files."""
