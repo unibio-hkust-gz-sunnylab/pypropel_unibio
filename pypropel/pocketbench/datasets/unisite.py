@@ -96,9 +96,22 @@ class UniSiteDSDataset(PBDataset):
     
     def _check_exists(self) -> bool:
         """Check if dataset files exist."""
+        # Check both possible structures:
+        # 1. HuggingFace download: files directly in root
+        # 2. Manual extraction: files in pkl_files subdirectory
+        
+        # Try pkl_files subdirectory first (manual extract)
         pkl_dir = self.root / "pkl_files"
+        if not pkl_dir.exists():
+            # Fallback: check if pkl_files is at root level (some HF downloads)
+            pkl_dir = self.root
+        
         split_file = pkl_dir / f"{self.split}_{self.sim_threshold}.csv"
-        return pkl_dir.exists() and split_file.exists()
+        
+        # Store the actual pkl_dir for _load to use
+        self._pkl_dir = pkl_dir if split_file.exists() else None
+        
+        return split_file.exists()
     
     def download(self):
         """Download dataset from HuggingFace."""
@@ -139,7 +152,8 @@ class UniSiteDSDataset(PBDataset):
                 f"Please download from {UNISITE_HF_URL}"
             )
         
-        pkl_dir = self.root / "pkl_files"
+        # Use the pkl_dir detected by _check_exists
+        pkl_dir = getattr(self, '_pkl_dir', None) or self.root / "pkl_files"
         split_file = pkl_dir / f"{self.split}_{self.sim_threshold}.csv"
         
         # Read split file to get protein IDs
