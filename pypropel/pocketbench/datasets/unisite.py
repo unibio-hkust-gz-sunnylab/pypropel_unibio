@@ -33,32 +33,20 @@ class UniSiteDSDataset(PBDataset):
     
     UniSite-DS is a UniProt-centric dataset that aggregates all ligand
     binding sites for a given protein sequence across multiple PDB
-    structures. This handles the "union of ground truths" logic to
-    prevent missing label bias.
+    structures.
     
-    Key features:
-    - 11,510 unique proteins
-    - 3,670 multi-site proteins
-    - UniProt sequence as canonical reference
-    - Multiple binding sites per protein
-    
-    Data format:
-    - PKL files with pocket_masks (binary masks for each site)
-    - metadata.csv with protein info
-    - Split files for train/test
+    Actual data format (folder-based):
+    - unisite-ds-v1/{protein_id}/ - protein folder
+      - {protein_id}_info.csv - protein info (sequence, etc.)
+      - {protein_id}.pdb - representative structure
+      - {protein_id}.mapping - residue mapping
+      - site1/, site2/, ... - binding site directories
     
     Examples
     --------
     >>> from pypropel.pocketbench.datasets import UniSiteDSDataset
-    >>> ds = UniSiteDSDataset(root="/path/to/unisite-ds", split="test")
+    >>> ds = UniSiteDSDataset(split="test")
     >>> print(f"Loaded {len(ds)} proteins")
-    >>> protein = ds[0]
-    >>> print(f"{protein.id}: {protein.num_sites} binding sites")
-    
-    Notes
-    -----
-    The dataset must be downloaded manually from HuggingFace:
-    https://huggingface.co/datasets/quanlin-wu/unisite-ds_v1
     """
     
     def __init__(
@@ -66,7 +54,8 @@ class UniSiteDSDataset(PBDataset):
         root: Optional[Union[str, Path]] = None,
         split: str = "test",
         sim_threshold: float = 0.9,
-        download: bool = False
+        download: bool = False,
+        limit: Optional[int] = None
     ):
         """
         Initialize UniSite-DS dataset.
@@ -75,48 +64,69 @@ class UniSiteDSDataset(PBDataset):
         ----------
         root : str or Path, optional
             Root directory containing the extracted dataset.
-            Defaults to ~/.pocketbench/datasets/unisite-ds.
         split : str, optional
             Data split: "train" or "test". Default "test".
         sim_threshold : float, optional
-            Sequence similarity threshold for train/test split.
-            Options: 0.3, 0.5, 0.7, 0.9. Default 0.9.
+            Sequence similarity threshold. Default 0.9.
         download : bool, optional
-            Whether to attempt download. Currently requires manual download.
+            Whether to attempt download.
+        limit : int, optional
+            Limit number of proteins to load (for testing).
         """
         if root is None:
             root = Path.home() / ".pocketbench" / "datasets" / "unisite-ds"
         self.split = split
         self.sim_threshold = sim_threshold
+        self.limit = limit
+        self._data_dir = None  # Will be set by _find_data_dir
         super().__init__(root, download)
     
     @property
     def name(self) -> str:
         return f"UniSite-DS ({self.split})"
     
+    def _find_data_dir(self) -> Optional[Path]:
+        """Find the actual data directory containing protein folders."""
+        # Possible locations after extraction
+        candidates = [
+            self.root / "unisite-ds-v1",
+            self.root / "unisite-ds_v1",
+            self.root,
+        ]
+        
+        for candidate in candidates:
+            if candidate.exists() and candidate.is_dir():
+                # Check if it contains protein folders (folders with _info.csv)
+                subdirs = [d for d in candidate.iterdir() if d.is_dir()]
+                if subdirs:
+                    # Check first subdir for expected structure
+                    first_dir = subdirs[0]
+                    info_file = first_dir / f"{first_dir.name}_info.csv"
+                    if info_file.exists():
+                        return candidate
+        
+        return None
+    
     def _check_exists(self) -> bool:
         """Check if dataset files exist, extracting archives if needed."""
-        # Check both possible structures:
-        # 1. HuggingFace download: files directly in root
-        # 2. Manual extraction: files in pkl_files subdirectory
-        
-        # First, try to extract archives if they exist but aren't extracted
+        # Try to extract archives if needed
         main_archive = self.root / "unisite-ds-v1.tar.gz"
-        pkl_dir = self.root / "pkl_files"
-        if main_archive.exists() and not pkl_dir.exists():
-            self._extract_archives()
+        if main_archive.exists():
+            data_dir = self._find_data_dir()
+            if data_dir is None:
+                self._extract_archives()
         
-        # Try pkl_files subdirectory first (manual extract)
-        if not pkl_dir.exists():
-            # Fallback: check if pkl_files is at root level (some HF downloads)
-            pkl_dir = self.root
+        # Find the data directory
+        self._data_dir = self._find_data_dir()
         
-        split_file = pkl_dir / f"{self.split}_{self.sim_threshold}.csv"
+        if self._data_dir is None:
+            if self.root.exists():
+                print(f"[UniSite Debug] Contents of {self.root}:")
+                for item in list(self.root.iterdir())[:10]:
+                    print(f"  - {item.name}")
+            return False
         
-        # Store the actual pkl_dir for _load to use
-        self._pkl_dir = pkl_dir if split_file.exists() else None
-        
-        return split_file.exists()
+        return True
     
     def download(self):
         """Download dataset from HuggingFace and extract archives."""
@@ -177,131 +187,79 @@ class UniSiteDSDataset(PBDataset):
                 print(f"Extracted benchmark datasets")
     
     def _load(self) -> List[PBProtein]:
-        """Load proteins from PKL files."""
+        """Load proteins from folder-based structure."""
         if not self._check_exists():
             raise FileNotFoundError(
                 f"Dataset not found at {self.root}. "
                 f"Please download from {UNISITE_HF_URL}"
             )
         
-        # Use the pkl_dir detected by _check_exists
-        pkl_dir = getattr(self, '_pkl_dir', None) or self.root / "pkl_files"
-        split_file = pkl_dir / f"{self.split}_{self.sim_threshold}.csv"
+        data_dir = self._data_dir
         
-        # Read split file to get protein IDs
-        protein_ids = []
-        with open(split_file, 'r') as f:
-            for line in f:
-                line = line.strip()
-                if line:
-                    protein_ids.append(line)
+        # Get all protein directories
+        protein_dirs = sorted([
+            d for d in data_dir.iterdir() 
+            if d.is_dir() and (d / f"{d.name}_info.csv").exists()
+        ])
+        
+        # Apply limit if specified
+        if self.limit:
+            protein_dirs = protein_dirs[:self.limit]
         
         proteins = []
-        for unp_id in protein_ids:
-            pkl_path = pkl_dir / f"{unp_id}.pkl"
-            if not pkl_path.exists():
-                continue
-            
+        for protein_dir in protein_dirs:
             try:
-                protein = self._load_protein_from_pkl(pkl_path, unp_id)
+                protein = self._load_protein_from_folder(protein_dir)
                 if protein is not None:
                     proteins.append(protein)
             except Exception as e:
-                print(f"Warning: Failed to load {unp_id}: {e}")
+                print(f"Warning: Failed to load {protein_dir.name}: {e}")
         
         print(f"Loaded {len(proteins)} proteins from {self.name}")
         return proteins
     
-    def _load_protein_from_pkl(
-        self, 
-        pkl_path: Path, 
-        unp_id: str
-    ) -> Optional[PBProtein]:
+    def _load_protein_from_folder(self, protein_dir: Path) -> Optional[PBProtein]:
         """
-        Load a single protein from PKL file.
+        Load a single protein from its folder.
         
-        PKL format:
-        - "label": UniProt ID
-        - "sequence": amino acid sequence
-        - "pdb_file_path": path to representative structure
-        - "map_dict": residue mapping PDB -> UniProt
-        - "target": {
-            "pocket_masks": (num_sites, seq_len) binary masks
-            "res_mask": (seq_len,) valid residue mask
-          }
+        Folder structure:
+        - {protein_id}_info.csv - contains sequence and metadata
+        - {protein_id}.pdb - representative structure
+        - {protein_id}.mapping - residue mapping
+        - site1/, site2/, ... - binding site directories
         """
-        with open(pkl_path, 'rb') as f:
-            data = pickle.load(f)
+        protein_id = protein_dir.name
         
-        sequence = data.get("sequence", "")
-        if not sequence:
-            return None
+        # Load info CSV for sequence
+        info_file = protein_dir / f"{protein_id}_info.csv"
+        sequence = ""
+        if info_file.exists():
+            try:
+                import csv
+                with open(info_file, 'r') as f:
+                    reader = csv.DictReader(f)
+                    for row in reader:
+                        sequence = row.get('sequence', row.get('seq', ''))
+                        break
+            except Exception:
+                pass
         
-        # Extract binding site masks
-        target = data.get("target", {})
-        pocket_masks = target.get("pocket_masks", None)
+        # If no sequence from CSV, try to extract from PDB
+        pdb_file = protein_dir / f"{protein_id}.pdb"
+        coords = np.zeros((1, 3), dtype=np.float32)
+        full_atoms = None
         
-        ground_truth_sites = []
-        if pocket_masks is not None:
-            pocket_masks = np.array(pocket_masks)
-            for site_idx in range(pocket_masks.shape[0]):
-                mask = pocket_masks[site_idx]
-                residue_indices = np.where(mask > 0)[0].tolist()
-                if residue_indices:
-                    # Compute approximate center (centroid of residue positions)
-                    # Note: Without 3D coords, we use sequence position as proxy
-                    center_idx = np.mean(residue_indices)
-                    center = np.array([center_idx, 0.0, 0.0])  # Placeholder
-                    
-                    ground_truth_sites.append(PBSite(
-                        center=center,
-                        residues=residue_indices,
-                        ligand_id=f"site{site_idx + 1}"
-                    ))
-        
-        # Try to load PDB structure for actual coordinates
-        coords = self._load_coords_if_available(data, unp_id)
-        
-        return PBProtein(
-            id=unp_id,
-            sequence=sequence,
-            coords=coords,
-            full_atoms=None,
-            ground_truth_sites=ground_truth_sites,
-            metadata={
-                'source': 'UniSite-DS',
-                'split': self.split,
-                'pdb_path': data.get("pdb_file_path", "")
-            }
-        )
-    
-    def _load_coords_if_available(
-        self, 
-        data: dict, 
-        unp_id: str
-    ) -> np.ndarray:
-        """Load C-alpha coordinates if PDB file is available."""
-        pdb_rel_path = data.get("pdb_file_path", "")
-        if not pdb_rel_path:
-            # Return placeholder coords
-            seq_len = len(data.get("sequence", ""))
-            return np.zeros((seq_len, 3), dtype=np.float32)
-        
-        # Try to find PDB file
-        pdb_path = self.root / pdb_rel_path
-        if not pdb_path.exists():
-            # Also try direct path from unp_id
-            pdb_path = self.root / unp_id / f"{unp_id}.pdb"
-        
-        if pdb_path.exists():
+        if pdb_file.exists():
             try:
                 from Bio.PDB import PDBParser
-                from Bio.PDB.Polypeptide import is_aa
+                from Bio.PDB.Polypeptide import is_aa, three_to_one
                 
                 parser = PDBParser(QUIET=True)
-                structure = parser.get_structure(unp_id, pdb_path)
+                structure = parser.get_structure(protein_id, pdb_file)
+                full_atoms = structure
                 
                 ca_coords = []
+                seq_from_pdb = []
                 for model in structure:
                     for chain in model:
                         for residue in chain:
@@ -309,18 +267,111 @@ class UniSiteDSDataset(PBDataset):
                                 try:
                                     ca = residue['CA']
                                     ca_coords.append(ca.get_coord())
-                                except KeyError:
+                                    seq_from_pdb.append(three_to_one(residue.get_resname()))
+                                except (KeyError, Exception):
                                     pass
-                    break
+                    break  # Only first model
                 
                 if ca_coords:
-                    return np.array(ca_coords, dtype=np.float32)
+                    coords = np.array(ca_coords, dtype=np.float32)
+                if not sequence and seq_from_pdb:
+                    sequence = ''.join(seq_from_pdb)
             except Exception:
                 pass
         
-        # Fallback: placeholder coords
-        seq_len = len(data.get("sequence", ""))
-        return np.zeros((seq_len, 3), dtype=np.float32)
+        if not sequence:
+            return None
+        
+        # Load binding sites from site directories
+        ground_truth_sites = []
+        site_dirs = sorted([
+            d for d in protein_dir.iterdir() 
+            if d.is_dir() and d.name.startswith('site')
+        ])
+        
+        for site_dir in site_dirs:
+            site = self._load_site(site_dir, protein_id, coords)
+            if site is not None:
+                ground_truth_sites.append(site)
+        
+        return PBProtein(
+            id=protein_id,
+            sequence=sequence,
+            coords=coords,
+            full_atoms=full_atoms,
+            ground_truth_sites=ground_truth_sites,
+            metadata={
+                'source': 'UniSite-DS',
+                'split': self.split,
+                'pdb_path': str(pdb_file) if pdb_file.exists() else ''
+            }
+        )
+    
+    def _load_site(
+        self, 
+        site_dir: Path, 
+        protein_id: str,
+        coords: np.ndarray
+    ) -> Optional[PBSite]:
+        """Load a binding site from its directory."""
+        site_name = site_dir.name
+        
+        # Look for residue list or mask file
+        # Common formats: residues.txt, mask.npy, site_info.csv
+        residue_indices = []
+        
+        # Try residues.txt
+        res_file = site_dir / "residues.txt"
+        if res_file.exists():
+            try:
+                with open(res_file, 'r') as f:
+                    for line in f:
+                        idx = int(line.strip())
+                        residue_indices.append(idx)
+            except Exception:
+                pass
+        
+        # Try mask.npy
+        mask_file = site_dir / "mask.npy"
+        if not residue_indices and mask_file.exists():
+            try:
+                mask = np.load(mask_file)
+                residue_indices = np.where(mask > 0)[0].tolist()
+            except Exception:
+                pass
+        
+        # Try site CSV files
+        for csv_file in site_dir.glob("*.csv"):
+            if not residue_indices:
+                try:
+                    import csv
+                    with open(csv_file, 'r') as f:
+                        reader = csv.DictReader(f)
+                        for row in reader:
+                            idx = row.get('residue_idx', row.get('index', row.get('res_idx')))
+                            if idx is not None:
+                                residue_indices.append(int(idx))
+                except Exception:
+                    pass
+        
+        if not residue_indices:
+            return None
+        
+        # Compute center from coordinates if available
+        if len(coords) > max(residue_indices, default=0):
+            valid_indices = [i for i in residue_indices if i < len(coords)]
+            if valid_indices:
+                center = coords[valid_indices].mean(axis=0)
+            else:
+                center = np.zeros(3)
+        else:
+            center = np.zeros(3)
+        
+        return PBSite(
+            center=center,
+            residues=residue_indices,
+            ligand_id=site_name
+        )
 
 
 class UniSiteBenchmarkDataset(PBDataset):
