@@ -218,14 +218,24 @@ class UniSiteDSDataset(PBDataset):
             protein_dirs = protein_dirs[:self.limit]
         
         proteins = []
+        failed_count = 0
         for protein_dir in protein_dirs:
             try:
                 protein = self._load_protein_from_folder(protein_dir)
                 if protein is not None:
                     proteins.append(protein)
+                else:
+                    failed_count += 1
+                    if failed_count <= 3:
+                        # Debug: why did this fail?
+                        pdb_file = protein_dir / f"{protein_dir.name}.pdb"
+                        print(f"[UniSite Debug] Failed: {protein_dir.name}, PDB exists: {pdb_file.exists()}")
             except Exception as e:
-                print(f"Warning: Failed to load {protein_dir.name}: {e}")
+                failed_count += 1
+                if failed_count <= 3:
+                    print(f"[UniSite Debug] Exception for {protein_dir.name}: {e}")
         
+        print(f"[UniSite Debug] Total failed: {failed_count}")
         print(f"Loaded {len(proteins)} proteins from {self.name}")
         return proteins
     
