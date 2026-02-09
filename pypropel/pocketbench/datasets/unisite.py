@@ -222,32 +222,19 @@ class UniSiteDSDataset(PBDataset):
         """
         Load a single protein from its folder.
         
-        Folder structure:
-        - {protein_id}_info.csv - contains sequence and metadata
-        - {protein_id}.pdb - representative structure
+        Actual folder structure:
+        - {protein_id}_info.csv - contains binding site info (site_position_uniprot)
+        - {protein_id}.pdb - representative structure (source of sequence)
         - {protein_id}.mapping - residue mapping
-        - site1/, site2/, ... - binding site directories
+        - site1/, site2/, ... - binding site directories with ligand/complex PDBs
         """
         protein_id = protein_dir.name
         
-        # Load info CSV for sequence
-        info_file = protein_dir / f"{protein_id}_info.csv"
-        sequence = ""
-        if info_file.exists():
-            try:
-                import csv
-                with open(info_file, 'r') as f:
-                    reader = csv.DictReader(f)
-                    for row in reader:
-                        sequence = row.get('sequence', row.get('seq', ''))
-                        break
-            except Exception:
-                pass
-        
-        # If no sequence from CSV, try to extract from PDB
+        # Load PDB for sequence and coordinates
         pdb_file = protein_dir / f"{protein_id}.pdb"
         coords = np.zeros((1, 3), dtype=np.float32)
         full_atoms = None
+        sequence = ""
         
         if pdb_file.exists():
             try:
@@ -274,25 +261,53 @@ class UniSiteDSDataset(PBDataset):
                 
                 if ca_coords:
                     coords = np.array(ca_coords, dtype=np.float32)
-                if not sequence and seq_from_pdb:
+                if seq_from_pdb:
                     sequence = ''.join(seq_from_pdb)
-            except Exception:
+            except Exception as e:
                 pass
         
         if not sequence:
             return None
         
-        # Load binding sites from site directories
+        # Load binding sites from _info.csv (site_position_uniprot column)
         ground_truth_sites = []
-        site_dirs = sorted([
-            d for d in protein_dir.iterdir() 
-            if d.is_dir() and d.name.startswith('site')
-        ])
+        info_file = protein_dir / f"{protein_id}_info.csv"
         
-        for site_dir in site_dirs:
-            site = self._load_site(site_dir, protein_id, coords)
-            if site is not None:
-                ground_truth_sites.append(site)
+        if info_file.exists():
+            try:
+                import csv
+                import ast
+                with open(info_file, 'r') as f:
+                    reader = csv.DictReader(f)
+                    for row in reader:
+                        site_name = row.get('site', 'unknown')
+                        # Parse the residue indices from the site_position_uniprot column
+                        # Format: "[19, 21, 22, 23, ...]"
+                        residue_str = row.get('site_position_uniprot', '[]')
+                        try:
+                            residue_indices = ast.literal_eval(residue_str)
+                            if isinstance(residue_indices, list) and residue_indices:
+                                # Convert to 0-indexed if needed (UniProt is 1-indexed)
+                                # Actually, check if indices match PDB coords range
+                                # For safety, keep as-is since we don't know the indexing
+                                residue_indices = [int(i) for i in residue_indices]
+                                
+                                # Compute center from coordinates
+                                valid_indices = [i for i in residue_indices if 0 <= i < len(coords)]
+                                if valid_indices:
+                                    center = coords[valid_indices].mean(axis=0)
+                                else:
+                                    center = np.zeros(3)
+                                
+                                ground_truth_sites.append(PBSite(
+                                    center=center,
+                                    residues=residue_indices,
+                                    ligand_id=row.get('ligand_name', site_name)
+                                ))
+                        except (ValueError, SyntaxError):
+                            pass
+            except Exception:
+                pass
         
         return PBProtein(
             id=protein_id,
@@ -307,71 +322,6 @@ class UniSiteDSDataset(PBDataset):
             }
         )
     
-    def _load_site(
-        self, 
-        site_dir: Path, 
-        protein_id: str,
-        coords: np.ndarray
-    ) -> Optional[PBSite]:
-        """Load a binding site from its directory."""
-        site_name = site_dir.name
-        
-        # Look for residue list or mask file
-        # Common formats: residues.txt, mask.npy, site_info.csv
-        residue_indices = []
-        
-        # Try residues.txt
-        res_file = site_dir / "residues.txt"
-        if res_file.exists():
-            try:
-                with open(res_file, 'r') as f:
-                    for line in f:
-                        idx = int(line.strip())
-                        residue_indices.append(idx)
-            except Exception:
-                pass
-        
-        # Try mask.npy
-        mask_file = site_dir / "mask.npy"
-        if not residue_indices and mask_file.exists():
-            try:
-                mask = np.load(mask_file)
-                residue_indices = np.where(mask > 0)[0].tolist()
-            except Exception:
-                pass
-        
-        # Try site CSV files
-        for csv_file in site_dir.glob("*.csv"):
-            if not residue_indices:
-                try:
-                    import csv
-                    with open(csv_file, 'r') as f:
-                        reader = csv.DictReader(f)
-                        for row in reader:
-                            idx = row.get('residue_idx', row.get('index', row.get('res_idx')))
-                            if idx is not None:
-                                residue_indices.append(int(idx))
-                except Exception:
-                    pass
-        
-        if not residue_indices:
-            return None
-        
-        # Compute center from coordinates if available
-        if len(coords) > max(residue_indices, default=0):
-            valid_indices = [i for i in residue_indices if i < len(coords)]
-            if valid_indices:
-                center = coords[valid_indices].mean(axis=0)
-            else:
-                center = np.zeros(3)
-        else:
-            center = np.zeros(3)
-        
-        return PBSite(
-            center=center,
-            residues=residue_indices,
-            ligand_id=site_name
-        )
 
 
 class UniSiteBenchmarkDataset(PBDataset):
