@@ -195,12 +195,23 @@ class UniSiteDSDataset(PBDataset):
             )
         
         data_dir = self._data_dir
+        print(f"[UniSite Debug] data_dir = {data_dir}")
         
         # Get all protein directories
+        all_subdirs = [d for d in data_dir.iterdir() if d.is_dir()]
+        print(f"[UniSite Debug] Found {len(all_subdirs)} subdirectories")
+        if all_subdirs:
+            sample = all_subdirs[0]
+            expected_csv = sample / f"{sample.name}_info.csv"
+            print(f"[UniSite Debug] Sample dir: {sample.name}")
+            print(f"[UniSite Debug] Expected CSV: {expected_csv}")
+            print(f"[UniSite Debug] CSV exists: {expected_csv.exists()}")
+        
         protein_dirs = sorted([
-            d for d in data_dir.iterdir() 
-            if d.is_dir() and (d / f"{d.name}_info.csv").exists()
+            d for d in all_subdirs
+            if (d / f"{d.name}_info.csv").exists()
         ])
+        print(f"[UniSite Debug] Protein dirs with _info.csv: {len(protein_dirs)}")
         
         # Apply limit if specified
         if self.limit:
