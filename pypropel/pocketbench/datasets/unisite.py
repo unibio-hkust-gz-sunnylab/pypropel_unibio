@@ -256,6 +256,7 @@ class UniSiteDSDataset(PBDataset):
         coords = np.zeros((1, 3), dtype=np.float32)
         full_atoms = None
         sequence = ""
+        parse_error = None
         
         if pdb_file.exists():
             try:
@@ -285,9 +286,15 @@ class UniSiteDSDataset(PBDataset):
                 if seq_from_pdb:
                     sequence = ''.join(seq_from_pdb)
             except Exception as e:
-                pass
+                parse_error = str(e)
         
         if not sequence:
+            # Debug: print first few failures
+            if not hasattr(self, '_debug_fail_count'):
+                self._debug_fail_count = 0
+            self._debug_fail_count += 1
+            if self._debug_fail_count <= 3:
+                print(f"[UniSite Debug] No sequence for {protein_id}: parse_error={parse_error}")
             return None
         
         # Load binding sites from _info.csv (site_position_uniprot column)
