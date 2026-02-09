@@ -261,7 +261,13 @@ class UniSiteDSDataset(PBDataset):
         if pdb_file.exists():
             try:
                 from Bio.PDB import PDBParser
-                from Bio.PDB.Polypeptide import is_aa, three_to_one
+                from Bio.PDB.Polypeptide import is_aa
+                # three_to_one was moved in Biopython 1.80+
+                try:
+                    from Bio.SeqUtils import seq3, seq1
+                    three_to_one = lambda x: seq1(x)
+                except ImportError:
+                    from Bio.PDB.Polypeptide import three_to_one
                 
                 parser = PDBParser(QUIET=True)
                 structure = parser.get_structure(protein_id, pdb_file)
