@@ -150,6 +150,7 @@ class PBPrediction:
     residues: List[int] = field(default_factory=list)
     confidence: float = 1.0
     model_name: str = ""
+    ligand_id: Optional[str] = None
     
     def __post_init__(self):
         """Ensure center is a numpy array and confidence is valid."""

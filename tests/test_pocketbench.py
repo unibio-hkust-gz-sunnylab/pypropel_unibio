@@ -16,8 +16,12 @@ from pypropel.pocketbench.metrics import (
     compute_dcc,
     compute_dca,
     compute_iou,
+    compute_ap,
     expand_center_to_residues,
     compute_site_center,
+    filter_predictions_by_gt,
+    filter_artifact_predictions,
+    deduplicate_predictions,
 )
 
 
@@ -268,3 +272,147 @@ class TestSiteCenter:
         coords = np.array([[1.0, 2.0, 3.0]])
         center = compute_site_center(coords, [])
         np.testing.assert_array_almost_equal(center, [0.0, 0.0, 0.0])
+
+
+# =============================================================================
+# AP & Filtering Tests
+# =============================================================================
+
+class TestComputeAP:
+    """Tests for compute_ap (Average Precision at IoU threshold)."""
+    
+    def test_perfect_single_prediction(self):
+        """Single correct prediction should give AP = 1.0."""
+        preds = [PBPrediction(center=[5, 0, 0], residues=[0, 1, 2, 3], confidence=0.9)]
+        gts = [PBSite(center=[5, 0, 0], residues=[0, 1, 2, 3])]
+        ap = compute_ap(preds, gts, iou_threshold=0.5)
+        assert ap == 1.0
+    
+    def test_wrong_prediction(self):
+        """Prediction with no IoU overlap gives AP = 0."""
+        preds = [PBPrediction(center=[50, 0, 0], residues=[10, 11, 12], confidence=0.9)]
+        gts = [PBSite(center=[5, 0, 0], residues=[0, 1, 2, 3])]
+        ap = compute_ap(preds, gts, iou_threshold=0.5)
+        assert ap == 0.0
+    
+    def test_artifact_inflation(self):
+        """Extra non-matching predictions should degrade AP."""
+        # 1 correct prediction + 5 wrong ones
+        preds = [
+            PBPrediction(center=[5, 0, 0], residues=[0, 1, 2, 3], confidence=0.9),
+            PBPrediction(center=[50, 0, 0], residues=[20, 21], confidence=0.8),
+            PBPrediction(center=[60, 0, 0], residues=[30, 31], confidence=0.7),
+            PBPrediction(center=[70, 0, 0], residues=[40, 41], confidence=0.6),
+            PBPrediction(center=[80, 0, 0], residues=[50, 51], confidence=0.5),
+            PBPrediction(center=[90, 0, 0], residues=[60, 61], confidence=0.4),
+        ]
+        gts = [PBSite(center=[5, 0, 0], residues=[0, 1, 2, 3])]
+        ap = compute_ap(preds, gts, iou_threshold=0.5)
+        # AP should be 1.0 * (1/1) = 1.0 for the first pred, no recall change after
+        # But total AP = 1.0 * 1.0 = 1.0 (since first pred is TP and recall reaches 1.0)
+        assert ap == 1.0  # First pred is highest confidence and correct
+    
+    def test_artifact_inflation_low_confidence_correct(self):
+        """When the correct prediction has LOW confidence, artifacts destroy AP."""
+        # 5 wrong predictions BEFORE the correct one (higher confidence)
+        preds = [
+            PBPrediction(center=[50, 0, 0], residues=[20, 21], confidence=0.9),
+            PBPrediction(center=[60, 0, 0], residues=[30, 31], confidence=0.8),
+            PBPrediction(center=[70, 0, 0], residues=[40, 41], confidence=0.7),
+            PBPrediction(center=[80, 0, 0], residues=[50, 51], confidence=0.6),
+            PBPrediction(center=[90, 0, 0], residues=[60, 61], confidence=0.5),
+            PBPrediction(center=[5, 0, 0], residues=[0, 1, 2, 3], confidence=0.4),
+        ]
+        gts = [PBSite(center=[5, 0, 0], residues=[0, 1, 2, 3])]
+        ap = compute_ap(preds, gts, iou_threshold=0.5)
+        # TP comes at position 6: precision=1/6, recall=1.0
+        # AP = (1/6) * 1.0 ≈ 0.167
+        assert ap < 0.2  # Severely degraded by artifact predictions
+
+
+class TestFilterByGT:
+    """Tests for filter_predictions_by_gt."""
+    
+    def test_keeps_matching_ligands(self):
+        """Predictions with GT-matching ligand_id are kept."""
+        preds = [
+            PBPrediction(center=[5, 0, 0], residues=[0, 1], ligand_id="ATP"),
+            PBPrediction(center=[10, 0, 0], residues=[5, 6], ligand_id="GOL"),
+            PBPrediction(center=[15, 0, 0], residues=[8, 9], ligand_id="ATP"),
+        ]
+        gts = [PBSite(center=[5, 0, 0], residues=[0, 1], ligand_id="ATP")]
+        
+        filtered = filter_predictions_by_gt(preds, gts)
+        assert len(filtered) == 2
+        assert all(p.ligand_id == "ATP" for p in filtered)
+    
+    def test_no_gt_ligand_info(self):
+        """When GT has no ligand_id, all predictions pass through."""
+        preds = [
+            PBPrediction(center=[5, 0, 0], residues=[0, 1], ligand_id="GOL"),
+            PBPrediction(center=[10, 0, 0], residues=[5, 6], ligand_id="ATP"),
+        ]
+        gts = [PBSite(center=[5, 0, 0], residues=[0, 1])]  # No ligand_id
+        
+        filtered = filter_predictions_by_gt(preds, gts)
+        assert len(filtered) == 2  # All pass through
+
+
+class TestFilterArtifacts:
+    """Tests for filter_artifact_predictions."""
+    
+    def test_removes_artifacts(self):
+        """Known artifacts (GOL, EDO, SO4) are filtered out."""
+        preds = [
+            PBPrediction(center=[5, 0, 0], residues=[0, 1], ligand_id="ATP"),
+            PBPrediction(center=[10, 0, 0], residues=[5, 6], ligand_id="GOL"),
+            PBPrediction(center=[15, 0, 0], residues=[8, 9], ligand_id="EDO"),
+            PBPrediction(center=[20, 0, 0], residues=[11, 12], ligand_id="SO4"),
+            PBPrediction(center=[25, 0, 0], residues=[14, 15], ligand_id="HEM"),
+        ]
+        
+        filtered = filter_artifact_predictions(preds)
+        assert len(filtered) == 2
+        assert [p.ligand_id for p in filtered] == ["ATP", "HEM"]
+    
+    def test_keeps_all_if_no_artifacts(self):
+        """Non-artifact predictions are all kept."""
+        preds = [
+            PBPrediction(center=[5, 0, 0], ligand_id="ATP"),
+            PBPrediction(center=[10, 0, 0], ligand_id="HEM"),
+        ]
+        filtered = filter_artifact_predictions(preds)
+        assert len(filtered) == 2
+
+
+class TestDeduplication:
+    """Tests for deduplicate_predictions."""
+    
+    def test_removes_overlapping(self):
+        """Overlapping predictions are merged (keep higher confidence)."""
+        preds = [
+            PBPrediction(center=[5, 0, 0], residues=[0, 1, 2, 3], confidence=0.9),
+            PBPrediction(center=[5, 0, 0], residues=[0, 1, 2, 3], confidence=0.7),  # Duplicate
+            PBPrediction(center=[50, 0, 0], residues=[20, 21, 22, 23], confidence=0.8),
+        ]
+        
+        deduped = deduplicate_predictions(preds, iou_threshold=0.5)
+        assert len(deduped) == 2
+        # Highest confidence kept
+        assert deduped[0].confidence == 0.9
+        assert deduped[1].confidence == 0.8
+    
+    def test_keeps_non_overlapping(self):
+        """Non-overlapping predictions are all kept."""
+        preds = [
+            PBPrediction(center=[5, 0, 0], residues=[0, 1, 2], confidence=0.9),
+            PBPrediction(center=[50, 0, 0], residues=[10, 11, 12], confidence=0.8),
+            PBPrediction(center=[100, 0, 0], residues=[20, 21, 22], confidence=0.7),
+        ]
+        
+        deduped = deduplicate_predictions(preds, iou_threshold=0.5)
+        assert len(deduped) == 3
+    
+    def test_empty_input(self):
+        """Empty input returns empty output."""
+        assert deduplicate_predictions([]) == []

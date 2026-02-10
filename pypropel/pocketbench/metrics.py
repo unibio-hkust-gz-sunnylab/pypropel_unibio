@@ -312,6 +312,132 @@ def compute_site_center(
 
 
 # =============================================================================
+# Prediction Filtering Utilities
+# =============================================================================
+
+# Common crystallographic artifact ligand codes that are NOT biologically
+# relevant binding sites. These appear as HETATM in PDB files but are
+# buffer components, cryoprotectants, or crystallization additives.
+CRYSTALLOGRAPHIC_ARTIFACTS = {
+    # Buffers & solvents
+    'GOL', 'EDO', 'PEG', 'DMS', 'ACT', 'BME', 'TRS', 'MES', 'EPE',
+    'MPD', 'IPA', 'PGE', 'PG4', 'P6G', '1PE', '2PE',
+    # Ions & small inorganics  
+    'SO4', 'PO4', 'CL', 'BR', 'IOD', 'NO3', 'SCN', 'ACY', 'FMT',
+    'MLI', 'NH4', 'CIT', 'TAR', 'OXL',
+    # Detergents
+    'BOG', 'LDA', 'SDS', 'LMT', 'OLC',
+    # Common cryoprotectants
+    'XYL', 'SUC', 'GLC', 'MAL', 'TRE',
+}
+
+
+def filter_predictions_by_gt(
+    predictions: List[PBPrediction],
+    ground_truths: List[PBSite]
+) -> List[PBPrediction]:
+    """
+    Keep only predictions whose ligand_id matches a ground truth site.
+    
+    This implements "Approach 1: GT-Matched AP" — testing whether the
+    model can correctly predict the pocket when given the right ligand.
+    
+    Parameters
+    ----------
+    predictions : List[PBPrediction]
+        All predictions (may include non-GT ligands).
+    ground_truths : List[PBSite]
+        Ground truth sites with ligand_id set.
+        
+    Returns
+    -------
+    List[PBPrediction]
+        Filtered predictions matching GT ligand codes.
+    """
+    gt_ligands = {gt.ligand_id for gt in ground_truths if gt.ligand_id}
+    if not gt_ligands:
+        return predictions  # No GT ligand info, return all
+    
+    return [p for p in predictions if p.ligand_id in gt_ligands]
+
+
+def filter_artifact_predictions(
+    predictions: List[PBPrediction],
+    artifact_codes: Optional[set] = None
+) -> List[PBPrediction]:
+    """
+    Remove predictions from known crystallographic artifact ligands.
+    
+    Parameters
+    ----------
+    predictions : List[PBPrediction]
+        All predictions.
+    artifact_codes : set, optional
+        Custom artifact codes. Defaults to CRYSTALLOGRAPHIC_ARTIFACTS.
+        
+    Returns
+    -------
+    List[PBPrediction]
+        Predictions with artifacts removed.
+    """
+    if artifact_codes is None:
+        artifact_codes = CRYSTALLOGRAPHIC_ARTIFACTS
+    
+    return [p for p in predictions if p.ligand_id not in artifact_codes]
+
+
+def deduplicate_predictions(
+    predictions: List[PBPrediction],
+    iou_threshold: float = 0.5
+) -> List[PBPrediction]:
+    """
+    Merge overlapping predictions, keeping higher-confidence ones.
+    
+    When multiple predictions target the same pocket (IoU >= threshold),
+    only the highest-confidence prediction is kept.
+    
+    Parameters
+    ----------
+    predictions : List[PBPrediction]
+        Predictions sorted by confidence (descending).
+    iou_threshold : float
+        IoU threshold for considering two predictions as duplicates.
+        
+    Returns
+    -------
+    List[PBPrediction]
+        Deduplicated predictions.
+    """
+    if not predictions:
+        return []
+    
+    sorted_preds = sorted(predictions, key=lambda p: p.confidence, reverse=True)
+    kept = []
+    
+    for pred in sorted_preds:
+        is_duplicate = False
+        for existing in kept:
+            if not pred.residues or not existing.residues:
+                # Fall back to center distance if no residues
+                dist = np.linalg.norm(
+                    np.asarray(pred.center) - np.asarray(existing.center)
+                )
+                if dist < 4.0:  # Same pocket if centers within 4Å
+                    is_duplicate = True
+                    break
+            else:
+                iou = compute_iou(pred.residues, existing.residues)
+                if iou >= iou_threshold:
+                    is_duplicate = True
+                    break
+        
+        if not is_duplicate:
+            kept.append(pred)
+    
+    return kept
+
+
+# =============================================================================
 # Batch Evaluation Functions
 # =============================================================================
 
@@ -323,6 +449,11 @@ def evaluate_predictions(
 ) -> dict:
     """
     Evaluate predictions across multiple proteins.
+    
+    Computes three AP variants:
+    - mean_ap: All predictions (backward-compatible, may be inflated by artifacts)
+    - mean_ap_matched: Only predictions matching GT ligand codes
+    - mean_ap_filtered: Artifact ligands removed + overlapping predictions deduplicated
     
     Parameters
     ----------
@@ -342,12 +473,16 @@ def evaluate_predictions(
         - 'dcc_success_rate': fraction of proteins with at least one DCC hit
         - 'dcc_top1_rate': fraction where top-1 prediction is a DCC hit
         - 'mean_iou': mean IoU across all prediction-ground truth pairs
-        - 'mean_ap': mean AP across proteins
+        - 'mean_ap': mean AP across proteins (all predictions)
+        - 'mean_ap_matched': mean AP using only GT-matching ligand predictions
+        - 'mean_ap_filtered': mean AP with artifacts removed + dedup
     """
     dcc_hits = 0
     dcc_top1_hits = 0
     all_ious = []
     all_aps = []
+    all_aps_matched = []
+    all_aps_filtered = []
     
     for protein, preds in zip(proteins, predictions):
         if not preds:
@@ -378,13 +513,38 @@ def evaluate_predictions(
             )
             all_ious.append(best_iou)
         
-        # AP
+        # AP (all predictions — backward-compatible)
         ap = compute_ap(
             preds, gts, 
             iou_threshold=iou_threshold,
             protein_coords=protein.coords
         )
         all_aps.append(ap)
+        
+        # AP matched (only GT-matching ligands)
+        matched_preds = filter_predictions_by_gt(preds, gts)
+        if matched_preds:
+            ap_matched = compute_ap(
+                matched_preds, gts,
+                iou_threshold=iou_threshold,
+                protein_coords=protein.coords
+            )
+            all_aps_matched.append(ap_matched)
+        else:
+            all_aps_matched.append(0.0)
+        
+        # AP filtered (artifacts removed + deduplicated)
+        filtered_preds = filter_artifact_predictions(preds)
+        filtered_preds = deduplicate_predictions(filtered_preds, iou_threshold=iou_threshold)
+        if filtered_preds:
+            ap_filtered = compute_ap(
+                filtered_preds, gts,
+                iou_threshold=iou_threshold,
+                protein_coords=protein.coords
+            )
+            all_aps_filtered.append(ap_filtered)
+        else:
+            all_aps_filtered.append(0.0)
     
     n_proteins = len(proteins)
     
@@ -393,5 +553,7 @@ def evaluate_predictions(
         'dcc_top1_rate': dcc_top1_hits / n_proteins if n_proteins > 0 else 0.0,
         'mean_iou': np.mean(all_ious) if all_ious else 0.0,
         'mean_ap': np.mean(all_aps) if all_aps else 0.0,
+        'mean_ap_matched': np.mean(all_aps_matched) if all_aps_matched else 0.0,
+        'mean_ap_filtered': np.mean(all_aps_filtered) if all_aps_filtered else 0.0,
         'n_proteins': n_proteins,
     }
