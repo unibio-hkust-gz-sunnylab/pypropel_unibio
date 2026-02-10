@@ -27,6 +27,11 @@ from .metrics import (
     expand_center_to_residues,
 )
 
+from .clustering import (
+    cluster_predicted_residues,
+    PocketCluster,
+)
+
 # Lazy imports for datasets and models
 from . import datasets
 from . import models
@@ -43,6 +48,9 @@ __all__ = [
     "compute_iou",
     "compute_ap",
     "expand_center_to_residues",
+    # Clustering
+    "cluster_predicted_residues",
+    "PocketCluster",
     # Subpackages
     "datasets",
     "models",
