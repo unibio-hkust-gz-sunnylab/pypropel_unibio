@@ -21,6 +21,7 @@ import shutil
 import numpy as np
 
 from ..core import PBProtein, PBSite
+from ..metrics import CRYSTALLOGRAPHIC_ARTIFACTS
 from .base import PBDataset
 
 
@@ -251,6 +252,9 @@ class P2RankDataset(PBDataset):
                 for residue in chain:
                     res_name = residue.get_resname()
                     if res_name in ligand_codes or (not ligand_codes and residue.id[0] != ' '):
+                        # Skip crystallographic artifacts when no explicit ligand codes given
+                        if not ligand_codes and res_name in CRYSTALLOGRAPHIC_ARTIFACTS:
+                            continue
                         # This is a ligand
                         ligand_atoms = list(residue.get_atoms())
                         if not ligand_atoms:
