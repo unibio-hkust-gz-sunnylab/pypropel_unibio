@@ -6,7 +6,7 @@ __email__ = "jianfeng.sunmt@gmail.com"
 __maintainer__ = "Jianfeng Sun"
 
 from Bio.PDB.PDBParser import PDBParser
-from Bio.PDB.Polypeptide import PPBuilder, three_to_one, is_aa
+from Bio.PDB.Polypeptide import PPBuilder, index_to_one, three_to_index, is_aa
 
 
 class PDBSequence:
@@ -69,8 +69,8 @@ class PDBSequence:
                 for residue in chain:
                     if is_aa(residue, standard=True) and 'CA' in residue:
                         try:
-                            seq += three_to_one(residue.get_resname())
-                        except KeyError:
+                            seq += index_to_one(three_to_index(residue.get_resname()))
+                        except (KeyError, ValueError):
                             seq += 'X'
         return seq
 
