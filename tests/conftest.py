@@ -7,6 +7,8 @@ import numpy as np
 import tempfile
 import os
 
+from pypropel.pocketbench.core import PBProtein, PBSite, PBPrediction
+
 
 @pytest.fixture
 def sample_coords_3d():
@@ -106,3 +108,59 @@ $$$$
     
     # Cleanup
     os.unlink(sdf_path)
+
+
+# =============================================================================
+# Benchmark Test Factories & Fixtures
+# =============================================================================
+
+def linear_protein_coords(n: int) -> np.ndarray:
+    """Generate linearly spaced Cα coords (3.8Å apart along x-axis)."""
+    return np.array([[i * 3.8, 0.0, 0.0] for i in range(n)], dtype=np.float32)
+
+
+def make_site(center, residues=None, ligand_id=None):
+    """Factory for PBSite."""
+    return PBSite(
+        center=center,
+        residues=residues or [],
+        ligand_id=ligand_id,
+    )
+
+
+def make_prediction(center, residues=None, confidence=1.0, ligand_id=None):
+    """Factory for PBPrediction."""
+    return PBPrediction(
+        center=center,
+        residues=residues or [],
+        confidence=confidence,
+        ligand_id=ligand_id,
+    )
+
+
+def make_protein(n_residues, sites=None, protein_id="test_protein"):
+    """Factory for PBProtein with linear coords."""
+    coords = linear_protein_coords(n_residues)
+    seq = "A" * n_residues
+    return PBProtein(
+        id=protein_id,
+        sequence=seq,
+        coords=coords,
+        ground_truth_sites=sites or [],
+    )
+
+
+@pytest.fixture
+def sample_protein_with_sites():
+    """Standard protein with 2 GT sites for reuse."""
+    sites = [
+        make_site(center=[1.9, 0.0, 0.0], residues=[0, 1], ligand_id="ATP"),
+        make_site(center=[34.2, 0.0, 0.0], residues=[8, 9], ligand_id="HEM"),
+    ]
+    return make_protein(10, sites=sites, protein_id="1abc_A")
+
+
+@pytest.fixture
+def sample_protein_no_sites():
+    """Protein with no GT sites (edge case)."""
+    return make_protein(10, sites=[], protein_id="empty_protein")

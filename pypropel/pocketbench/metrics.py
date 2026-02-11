@@ -483,14 +483,17 @@ def evaluate_predictions(
     all_aps = []
     all_aps_matched = []
     all_aps_filtered = []
-    
+    n_evaluated = 0
+
     for protein, preds in zip(proteins, predictions):
         if not preds:
             continue
-        
+
         gts = protein.ground_truth_sites
         if not gts:
             continue
+
+        n_evaluated += 1
         
         # DCC for top-1 prediction
         is_hit, _ = compute_dcc(preds[0], gts, dcc_threshold)
@@ -546,14 +549,13 @@ def evaluate_predictions(
         else:
             all_aps_filtered.append(0.0)
     
-    n_proteins = len(proteins)
-    
     return {
-        'dcc_success_rate': dcc_hits / n_proteins if n_proteins > 0 else 0.0,
-        'dcc_top1_rate': dcc_top1_hits / n_proteins if n_proteins > 0 else 0.0,
+        'dcc_success_rate': dcc_hits / n_evaluated if n_evaluated > 0 else 0.0,
+        'dcc_top1_rate': dcc_top1_hits / n_evaluated if n_evaluated > 0 else 0.0,
         'mean_iou': np.mean(all_ious) if all_ious else 0.0,
         'mean_ap': np.mean(all_aps) if all_aps else 0.0,
         'mean_ap_matched': np.mean(all_aps_matched) if all_aps_matched else 0.0,
         'mean_ap_filtered': np.mean(all_aps_filtered) if all_aps_filtered else 0.0,
-        'n_proteins': n_proteins,
+        'n_proteins': len(proteins),
+        'n_evaluated': n_evaluated,
     }
