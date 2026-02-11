@@ -237,13 +237,15 @@ class ContactMap:
                 for residue in chain:
                     if not is_aa(residue, standard=True):
                         continue
-                    
+                    if 'CA' not in residue:
+                        continue
+
                     res_coords = self.get_residue_coords(residue)
                     if len(res_coords) == 0:
                         continue
-                    
+
                     dist = self.residue_ligand_distance(res_coords, ligand_coords)
-                    
+
                     results.append({
                         'chain': chain.get_id(),
                         'res_id': residue.get_id()[1],

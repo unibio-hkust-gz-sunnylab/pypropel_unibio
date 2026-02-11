@@ -6,13 +6,13 @@ __email__ = "jianfeng.sunmt@gmail.com"
 __maintainer__ = "Jianfeng Sun"
 
 from Bio.PDB.PDBParser import PDBParser
-from Bio.PDB.Polypeptide import PPBuilder
+from Bio.PDB.Polypeptide import PPBuilder, three_to_one, is_aa
 
 
 class PDBSequence:
     """
     Simplified PDB sequence extraction class.
-    
+
     Provides methods to extract amino acid sequences from PDB files
     without requiring chain-specific parameters.
     """
@@ -24,18 +24,18 @@ class PDBSequence:
     def from_file(self, pdb_fpn: str) -> str:
         """
         Extract amino acid sequence from a PDB file.
-        
+
         Parameters
         ----------
         pdb_fpn : str
             Full path to the PDB file.
-            
+
         Returns
         -------
         str
             Amino acid sequence in one-letter code.
             Concatenates sequences from all chains.
-            
+
         Examples
         --------
         >>> pdb_seq = PDBSequence()
@@ -49,27 +49,48 @@ class PDBSequence:
     def from_structure(self, structure) -> str:
         """
         Extract amino acid sequence from a Bio.PDB structure object.
-        
+
+        Uses the canonical residue filter (is_aa(standard=True) AND has CA atom)
+        to ensure the sequence length matches GVP, ContactMap, and fpsite outputs.
+
         Parameters
         ----------
         structure : Bio.PDB.Structure.Structure
             A BioPython PDB structure object.
-            
+
         Returns
         -------
         str
             Amino acid sequence in one-letter code.
-            Concatenates sequences from all polypeptides.
-            
-        Examples
-        --------
-        >>> from Bio.PDB import PDBParser
-        >>> parser = PDBParser(QUIET=True)
-        >>> structure = parser.get_structure('prot', '/path/to/protein.pdb')
-        >>> pdb_seq = PDBSequence()
-        >>> seq = pdb_seq.from_structure(structure)
-        >>> print(seq)
-        'MVLSPADKTNVKAAWGKVGAHAGEYGAEALERMFLSFPTTKTYFPHFDLSH...'
+        """
+        seq = ""
+        for model in structure:
+            for chain in model:
+                for residue in chain:
+                    if is_aa(residue, standard=True) and 'CA' in residue:
+                        try:
+                            seq += three_to_one(residue.get_resname())
+                        except KeyError:
+                            seq += 'X'
+        return seq
+
+    def from_structure_ppbuilder(self, structure) -> str:
+        """
+        Extract amino acid sequence using PPBuilder (legacy method).
+
+        This uses peptide bond geometry to identify residues, which may
+        produce a different residue count than the canonical filter.
+        Kept for backward compatibility.
+
+        Parameters
+        ----------
+        structure : Bio.PDB.Structure.Structure
+            A BioPython PDB structure object.
+
+        Returns
+        -------
+        str
+            Amino acid sequence in one-letter code.
         """
         seq = ""
         for pp in self.ppb.build_peptides(structure):

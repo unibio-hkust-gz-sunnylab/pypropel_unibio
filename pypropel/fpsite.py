@@ -752,7 +752,7 @@ def get_protein_scalar_features(
             if chain_id is not None and chain.get_id() != chain_id:
                 continue
             for residue in chain:
-                if Polypeptide.is_aa(residue, standard=True):
+                if Polypeptide.is_aa(residue, standard=True) and 'CA' in residue:
                     residues.append(residue)
                     res_names.append(residue.get_resname())
     

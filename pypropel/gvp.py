@@ -20,6 +20,38 @@ from typing import List, Tuple, Dict, Optional
 import numpy as np
 
 
+def get_canonical_residues(structure, chain_id: str = None) -> list:
+    """
+    Return the canonical list of residues: is_aa(standard=True) AND has a CA atom.
+
+    All modules (GVP, ContactMap, fpsite, ESM sequence) should use this
+    single function to iterate residues, ensuring index alignment.
+
+    Parameters
+    ----------
+    structure : Bio.PDB.Structure.Structure
+        BioPython structure object.
+    chain_id : str, optional
+        Chain ID to extract. If None, extracts all chains.
+
+    Returns
+    -------
+    list
+        List of Bio.PDB.Residue.Residue objects passing the canonical filter.
+    """
+    from Bio.PDB import Polypeptide
+
+    residues = []
+    for model in structure:
+        for chain in model:
+            if chain_id is not None and chain.get_id() != chain_id:
+                continue
+            for residue in chain:
+                if Polypeptide.is_aa(residue, standard=True) and 'CA' in residue:
+                    residues.append(residue)
+    return residues
+
+
 def get_ca_coords(structure, chain_id: str = None) -> np.ndarray:
     """
     Extract Cα (alpha carbon) coordinates for all residues.
