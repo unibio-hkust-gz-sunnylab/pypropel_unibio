@@ -239,25 +239,59 @@ class UniSiteDSDataset(PBDataset):
         print(f"Loaded {len(proteins)} proteins from {self.name}")
         return proteins
     
+    def _load_mapping(self, protein_dir: Path, protein_id: str) -> dict:
+        """
+        Load UniProt-to-array-index mapping from .mapping file.
+
+        The .mapping file has one line per residue in the PDB structure.
+        Each line is "uniprot_pos,pdb_pos". The line number (0-based)
+        corresponds to the index in the coords array.
+
+        Returns
+        -------
+        dict
+            {uniprot_position: array_index} mapping.
+        """
+        mapping_file = protein_dir / f"{protein_id}.mapping"
+        uniprot_to_idx = {}
+
+        if mapping_file.exists():
+            array_idx = 0
+            with open(mapping_file, 'r') as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    parts = line.split(',')
+                    if len(parts) >= 1:
+                        try:
+                            uniprot_pos = int(parts[0])
+                            uniprot_to_idx[uniprot_pos] = array_idx
+                            array_idx += 1
+                        except ValueError:
+                            continue
+
+        return uniprot_to_idx
+
     def _load_protein_from_folder(self, protein_dir: Path) -> Optional[PBProtein]:
         """
         Load a single protein from its folder.
-        
+
         Actual folder structure:
         - {protein_id}_info.csv - contains binding site info (site_position_uniprot)
         - {protein_id}.pdb - representative structure (source of sequence)
-        - {protein_id}.mapping - residue mapping
+        - {protein_id}.mapping - UniProt pos to PDB residue mapping
         - site1/, site2/, ... - binding site directories with ligand/complex PDBs
         """
         protein_id = protein_dir.name
-        
+
         # Load PDB for sequence and coordinates
         pdb_file = protein_dir / f"{protein_id}.pdb"
         coords = np.zeros((1, 3), dtype=np.float32)
         full_atoms = None
         sequence = ""
         parse_error = None
-        
+
         if pdb_file.exists():
             try:
                 from Bio.PDB import PDBParser
@@ -268,11 +302,11 @@ class UniSiteDSDataset(PBDataset):
                     three_to_one = lambda x: seq1(x)
                 except ImportError:
                     from Bio.PDB.Polypeptide import three_to_one
-                
+
                 parser = PDBParser(QUIET=True)
                 structure = parser.get_structure(protein_id, pdb_file)
                 full_atoms = structure
-                
+
                 ca_coords = []
                 seq_from_pdb = []
                 for model in structure:
@@ -286,27 +320,29 @@ class UniSiteDSDataset(PBDataset):
                                 except (KeyError, Exception):
                                     pass
                     break  # Only first model
-                
+
                 if ca_coords:
                     coords = np.array(ca_coords, dtype=np.float32)
                 if seq_from_pdb:
                     sequence = ''.join(seq_from_pdb)
             except Exception as e:
                 parse_error = str(e)
-        
+
         if not sequence:
-            # Debug: print first few failures
             if not hasattr(self, '_debug_fail_count'):
                 self._debug_fail_count = 0
             self._debug_fail_count += 1
             if self._debug_fail_count <= 3:
                 print(f"[UniSite Debug] No sequence for {protein_id}: parse_error={parse_error}")
             return None
-        
-        # Load binding sites from _info.csv (site_position_uniprot column)
+
+        # Load UniProt position -> array index mapping
+        uniprot_to_idx = self._load_mapping(protein_dir, protein_id)
+
+        # Load binding sites from _info.csv
         ground_truth_sites = []
         info_file = protein_dir / f"{protein_id}_info.csv"
-        
+
         if info_file.exists():
             try:
                 import csv
@@ -315,24 +351,28 @@ class UniSiteDSDataset(PBDataset):
                     reader = csv.DictReader(f)
                     for row in reader:
                         site_name = row.get('site', 'unknown')
-                        # Parse the residue indices from the site_position_uniprot column
-                        # Format: "[19, 21, 22, 23, ...]"
                         residue_str = row.get('site_position_uniprot', '[]')
                         try:
-                            residue_indices = ast.literal_eval(residue_str)
-                            if isinstance(residue_indices, list) and residue_indices:
-                                # Convert to 0-indexed if needed (UniProt is 1-indexed)
-                                # Actually, check if indices match PDB coords range
-                                # For safety, keep as-is since we don't know the indexing
-                                residue_indices = [int(i) for i in residue_indices]
-                                
-                                # Compute center from coordinates
-                                valid_indices = [i for i in residue_indices if 0 <= i < len(coords)]
-                                if valid_indices:
-                                    center = coords[valid_indices].mean(axis=0)
+                            uniprot_positions = ast.literal_eval(residue_str)
+                            if isinstance(uniprot_positions, list) and uniprot_positions:
+                                # Convert UniProt positions to 0-based array indices
+                                # using the .mapping file
+                                if uniprot_to_idx:
+                                    residue_indices = [
+                                        uniprot_to_idx[int(p)]
+                                        for p in uniprot_positions
+                                        if int(p) in uniprot_to_idx
+                                    ]
+                                else:
+                                    # Fallback: no mapping file, assume 1-indexed
+                                    residue_indices = [int(p) - 1 for p in uniprot_positions]
+                                    residue_indices = [i for i in residue_indices if 0 <= i < len(coords)]
+
+                                if residue_indices:
+                                    center = coords[residue_indices].mean(axis=0)
                                 else:
                                     center = np.zeros(3)
-                                
+
                                 ground_truth_sites.append(PBSite(
                                     center=center,
                                     residues=residue_indices,
@@ -342,7 +382,7 @@ class UniSiteDSDataset(PBDataset):
                             pass
             except Exception:
                 pass
-        
+
         return PBProtein(
             id=protein_id,
             sequence=sequence,
