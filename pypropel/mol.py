@@ -43,10 +43,23 @@ def load_sdf(sdf_path: str):
     """
     if not RDKIT_AVAILABLE:
         raise ImportError("RDKit is required for ligand loading. Install with: pip install rdkit")
-    
+
+    # Try strict sanitization first
     suppl = Chem.SDMolSupplier(sdf_path)
     for mol in suppl:
         if mol is not None:
+            return mol
+
+    # Fallback: permissive loading for molecules with unusual elements
+    # (e.g. boron clusters, BeF3 phosphate mimics) that fail valence checks
+    suppl = Chem.SDMolSupplier(sdf_path, sanitize=False)
+    for mol in suppl:
+        if mol is not None:
+            try:
+                Chem.SanitizeMol(mol, Chem.SanitizeFlags.SANITIZE_ALL ^
+                                 Chem.SanitizeFlags.SANITIZE_PROPERTIES)
+            except Exception:
+                pass  # Use mol as-is — coordinates are still valid
             return mol
     return None
 
