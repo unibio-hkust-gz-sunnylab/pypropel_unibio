@@ -113,22 +113,22 @@ def compute_iou(
 ) -> float:
     """
     Compute Intersection over Union (IoU) based on residue indices.
-    
+
     This is the Jaccard index between predicted and ground truth
     residue sets.
-    
+
     Parameters
     ----------
     pred_residues : List[int]
         0-indexed residue indices from prediction.
     gt_residues : List[int]
         0-indexed residue indices from ground truth.
-        
+
     Returns
     -------
     float
         IoU score in range [0, 1].
-        
+
     Examples
     --------
     >>> compute_iou([0, 1, 2, 3], [2, 3, 4, 5])
@@ -136,16 +136,86 @@ def compute_iou(
     """
     pred_set = set(pred_residues)
     gt_set = set(gt_residues)
-    
+
     if not pred_set and not gt_set:
         return 1.0  # Both empty = perfect match
     if not pred_set or not gt_set:
         return 0.0  # One empty = no match
-    
+
     intersection = len(pred_set & gt_set)
     union = len(pred_set | gt_set)
-    
+
     return intersection / union
+
+
+def compute_residue_precision_recall_f1(
+    pred_residues: List[int],
+    gt_residues: List[int]
+) -> Tuple[float, float, float]:
+    """
+    Compute residue-level precision, recall and F1.
+
+    Parameters
+    ----------
+    pred_residues : List[int]
+        0-indexed residue indices from prediction.
+    gt_residues : List[int]
+        0-indexed residue indices from ground truth.
+
+    Returns
+    -------
+    Tuple[float, float, float]
+        (precision, recall, f1) each in range [0, 1].
+    """
+    pred_set = set(pred_residues)
+    gt_set = set(gt_residues)
+
+    if not pred_set and not gt_set:
+        return 1.0, 1.0, 1.0
+    if not pred_set or not gt_set:
+        return 0.0, 0.0, 0.0
+
+    tp = len(pred_set & gt_set)
+    precision = tp / len(pred_set)
+    recall = tp / len(gt_set)
+    f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0.0
+
+    return precision, recall, f1
+
+
+def compute_residue_dice(
+    pred_residues: List[int],
+    gt_residues: List[int]
+) -> float:
+    """
+    Compute Dice coefficient (Sorensen-Dice) based on residue indices.
+
+    DICE = 2 * |pred ∩ gt| / (|pred| + |gt|)
+
+    Equivalent to F1 score for binary set membership.
+
+    Parameters
+    ----------
+    pred_residues : List[int]
+        0-indexed residue indices from prediction.
+    gt_residues : List[int]
+        0-indexed residue indices from ground truth.
+
+    Returns
+    -------
+    float
+        Dice coefficient in range [0, 1].
+    """
+    pred_set = set(pred_residues)
+    gt_set = set(gt_residues)
+
+    if not pred_set and not gt_set:
+        return 1.0
+    if not pred_set or not gt_set:
+        return 0.0
+
+    intersection = len(pred_set & gt_set)
+    return 2 * intersection / (len(pred_set) + len(gt_set))
 
 
 def compute_ap(
@@ -480,6 +550,10 @@ def evaluate_predictions(
     dcc_hits = 0
     dcc_top1_hits = 0
     all_ious = []
+    all_precisions = []
+    all_recalls = []
+    all_f1s = []
+    all_dices = []
     all_aps = []
     all_aps_matched = []
     all_aps_filtered = []
@@ -494,12 +568,12 @@ def evaluate_predictions(
             continue
 
         n_evaluated += 1
-        
-        # DCC for top-1 prediction
+
+        # DCC for top-1 prediction (kept for reference / comparison)
         is_hit, _ = compute_dcc(preds[0], gts, dcc_threshold)
         if is_hit:
             dcc_top1_hits += 1
-        
+
         # DCC for any prediction
         any_hit = any(
             compute_dcc(pred, gts, dcc_threshold)[0]
@@ -507,14 +581,27 @@ def evaluate_predictions(
         )
         if any_hit:
             dcc_hits += 1
-        
-        # IoU for top-1 vs best GT
+
+        # Residue-level metrics for top-1 vs best GT
         if preds[0].residues and gts[0].residues:
-            best_iou = max(
-                compute_iou(preds[0].residues, gt.residues)
-                for gt in gts
-            )
+            # Find best-matching GT for IoU, P/R/F1, Dice
+            best_iou = 0.0
+            best_gt_idx = 0
+            for gt_idx, gt in enumerate(gts):
+                iou = compute_iou(preds[0].residues, gt.residues)
+                if iou > best_iou:
+                    best_iou = iou
+                    best_gt_idx = gt_idx
             all_ious.append(best_iou)
+
+            best_gt = gts[best_gt_idx]
+            prec, rec, f1 = compute_residue_precision_recall_f1(
+                preds[0].residues, best_gt.residues
+            )
+            all_precisions.append(prec)
+            all_recalls.append(rec)
+            all_f1s.append(f1)
+            all_dices.append(compute_residue_dice(preds[0].residues, best_gt.residues))
         
         # AP (all predictions — backward-compatible)
         ap = compute_ap(
@@ -550,12 +637,20 @@ def evaluate_predictions(
             all_aps_filtered.append(0.0)
     
     return {
-        'dcc_success_rate': dcc_hits / n_evaluated if n_evaluated > 0 else 0.0,
-        'dcc_top1_rate': dcc_top1_hits / n_evaluated if n_evaluated > 0 else 0.0,
+        # Residue-level segmentation metrics (primary)
         'mean_iou': np.mean(all_ious) if all_ious else 0.0,
+        'mean_precision': np.mean(all_precisions) if all_precisions else 0.0,
+        'mean_recall': np.mean(all_recalls) if all_recalls else 0.0,
+        'mean_f1': np.mean(all_f1s) if all_f1s else 0.0,
+        'mean_dice': np.mean(all_dices) if all_dices else 0.0,
+        # AP metrics
         'mean_ap': np.mean(all_aps) if all_aps else 0.0,
         'mean_ap_matched': np.mean(all_aps_matched) if all_aps_matched else 0.0,
         'mean_ap_filtered': np.mean(all_aps_filtered) if all_aps_filtered else 0.0,
+        # DCC metrics (kept for comparison with center-based methods)
+        'dcc_success_rate': dcc_hits / n_evaluated if n_evaluated > 0 else 0.0,
+        'dcc_top1_rate': dcc_top1_hits / n_evaluated if n_evaluated > 0 else 0.0,
+        # Counts
         'n_proteins': len(proteins),
         'n_evaluated': n_evaluated,
     }
