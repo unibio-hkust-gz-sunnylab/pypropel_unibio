@@ -311,6 +311,105 @@ def compute_ap(
     return ap
 
 
+def compute_residue_mcc(
+    pred_residues: List[int],
+    gt_residues: List[int],
+    n_total: int
+) -> float:
+    """
+    Compute Matthews Correlation Coefficient from residue indices.
+
+    Requires the total number of residues to determine true negatives.
+
+    Parameters
+    ----------
+    pred_residues : List[int]
+        0-indexed residue indices from prediction.
+    gt_residues : List[int]
+        0-indexed residue indices from ground truth.
+    n_total : int
+        Total number of residues in the protein.
+
+    Returns
+    -------
+    float
+        MCC in range [-1, 1].
+    """
+    pred_set = set(pred_residues)
+    gt_set = set(gt_residues)
+
+    tp = len(pred_set & gt_set)
+    fp = len(pred_set - gt_set)
+    fn = len(gt_set - pred_set)
+    tn = n_total - tp - fp - fn
+
+    denom = ((tp + fp) * (tp + fn) * (tn + fp) * (tn + fn)) ** 0.5
+    if denom == 0:
+        return 0.0
+    return (tp * tn - fp * fn) / denom
+
+
+def compute_residue_auprc(
+    pred_confidences: List[float],
+    pred_residues: List[int],
+    gt_residues: List[int],
+    n_total: int
+) -> float:
+    """
+    Compute Area Under Precision-Recall Curve from per-residue confidences.
+
+    Each residue gets a confidence score (e.g., from the model's probability
+    output). Residues are ranked by confidence and AUPRC is computed for
+    the binary task of identifying ground truth binding site residues.
+
+    Parameters
+    ----------
+    pred_confidences : List[float]
+        Confidence score for each residue (length n_total).
+    pred_residues : List[int]
+        Not used directly; included for API consistency.
+    gt_residues : List[int]
+        0-indexed residue indices from ground truth.
+    n_total : int
+        Total number of residues in the protein.
+
+    Returns
+    -------
+    float
+        AUPRC score in range [0, 1].
+    """
+    if not gt_residues or n_total == 0:
+        return 0.0
+
+    gt_set = set(gt_residues)
+    scores = np.array(pred_confidences[:n_total])
+    binary_labels = np.array([1 if i in gt_set else 0 for i in range(n_total)])
+
+    if binary_labels.sum() == 0:
+        return 0.0
+
+    sorted_indices = np.argsort(-scores)
+    sorted_labels = binary_labels[sorted_indices]
+
+    tp = 0
+    fp = 0
+    total_positives = binary_labels.sum()
+    auprc = 0.0
+    prev_recall = 0.0
+
+    for label in sorted_labels:
+        if label == 1:
+            tp += 1
+        else:
+            fp += 1
+        precision = tp / (tp + fp)
+        recall = tp / total_positives
+        auprc += precision * (recall - prev_recall)
+        prev_recall = recall
+
+    return float(auprc)
+
+
 # =============================================================================
 # Utility Functions
 # =============================================================================
@@ -554,6 +653,7 @@ def evaluate_predictions(
     all_recalls = []
     all_f1s = []
     all_dices = []
+    all_mccs = []
     all_aps = []
     all_aps_matched = []
     all_aps_filtered = []
@@ -584,7 +684,7 @@ def evaluate_predictions(
 
         # Residue-level metrics for top-1 vs best GT
         if preds[0].residues and gts[0].residues:
-            # Find best-matching GT for IoU, P/R/F1, Dice
+            # Find best-matching GT for IoU, P/R/F1, Dice, MCC
             best_iou = 0.0
             best_gt_idx = 0
             for gt_idx, gt in enumerate(gts):
@@ -602,6 +702,11 @@ def evaluate_predictions(
             all_recalls.append(rec)
             all_f1s.append(f1)
             all_dices.append(compute_residue_dice(preds[0].residues, best_gt.residues))
+
+            # MCC requires total residue count
+            n_total = len(protein.coords)
+            mcc = compute_residue_mcc(preds[0].residues, best_gt.residues, n_total)
+            all_mccs.append(mcc)
         
         # AP (all predictions — backward-compatible)
         ap = compute_ap(
@@ -643,6 +748,7 @@ def evaluate_predictions(
         'mean_recall': np.mean(all_recalls) if all_recalls else 0.0,
         'mean_f1': np.mean(all_f1s) if all_f1s else 0.0,
         'mean_dice': np.mean(all_dices) if all_dices else 0.0,
+        'mean_mcc': np.mean(all_mccs) if all_mccs else 0.0,
         # AP metrics
         'mean_ap': np.mean(all_aps) if all_aps else 0.0,
         'mean_ap_matched': np.mean(all_aps_matched) if all_aps_matched else 0.0,
