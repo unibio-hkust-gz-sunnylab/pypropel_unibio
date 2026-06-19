@@ -87,15 +87,18 @@ class PSSM:
             window_aa_ids,
     ):
         list_2d_ = list_2d
+        zero = [0 for _ in range(20)]
         for i, aa_win_ids in enumerate(window_aa_ids):
+            row_features = []
             for j in aa_win_ids:
                 # print(j)
                 for k in j:
                     # print(k)
                     if k is None:
-                        list_2d_[i] = list_2d_[i] + [0 for i in range(20)]
+                        row_features.extend(zero)
                     else:
-                        list_2d_[i] = list_2d_[i] + pssm[k]
+                        row_features.extend(pssm[k])
+            list_2d_[i].extend(row_features)
         return list_2d_
 
     def hhm_(
@@ -105,15 +108,18 @@ class PSSM:
             window_aa_ids,
     ):
         list_2d_ = list_2d
+        zero = [0 for _ in range(30)]
         for i, aa_win_ids in enumerate(window_aa_ids):
+            row_features = []
             for j in aa_win_ids:
                 # print(j)
                 for k in j:
                     # print(k)
                     if k is None:
-                        list_2d_[i] = list_2d_[i] + [0 for i in range(30)]
+                        row_features.extend(zero)
                     else:
-                        list_2d_[i] = list_2d_[i] + hhm[k].tolist()
+                        row_features.extend(hhm[k].tolist())
+            list_2d_[i].extend(row_features)
         return list_2d_
 
 

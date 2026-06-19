@@ -32,18 +32,21 @@ class Assemble:
         print(df_accpro)
         window_aa_ids_ = window_aa_ids if mode == 'single' else [i[0] + i[1] for i in window_aa_ids]
         list_2d_ = list_2d
+        zero = np.zeros(2).tolist()
         for i, aa_win_ids in enumerate(window_aa_ids_):
             # print(i)
             # print(aa_win_ids)
+            row_features = []
             for j in aa_win_ids:
                 # print(aa_win_ids)
                 if j is None:
-                    list_2d_[i] = list_2d_[i] + np.zeros(2).tolist()
+                    row_features.extend(zero)
                 else:
                     if accpro[j - 1][0] == 'e':
-                        list_2d_[i] = list_2d_[i] + [0, 1]
+                        row_features.extend([0, 1])
                     else:
-                        list_2d_[i] = list_2d_[i] + [1, 0]
+                        row_features.extend([1, 0])
+            list_2d_[i].extend(row_features)
         end_time = time.time()
         self.console.print('=========>ACCpro solvent: {time}s.'.format(time=end_time - start_time))
         return list_2d_
@@ -60,53 +63,42 @@ class Assemble:
         # print(accpro20)
         window_aa_ids_ = window_aa_ids if mode == 'single' else [i[0] + i[1] for i in window_aa_ids]
         list_2d_ = list_2d
+        zero = np.zeros(20).tolist()
+        value_to_index = {
+            0.0: 19,
+            0.05: 18,
+            0.1: 17,
+            0.15: 16,
+            0.2: 15,
+            0.25: 14,
+            0.3: 13,
+            0.35: 12,
+            0.4: 11,
+            0.45: 10,
+            0.5: 9,
+            0.55: 8,
+            0.6: 7,
+            0.65: 6,
+            0.7: 5,
+            0.75: 4,
+            0.205: 2,
+            0.9: 1,
+        }
+        onehot = {
+            value: [1 if idx == active_idx else 0 for idx in range(20)]
+            for value, active_idx in value_to_index.items()
+        }
+        default = [1 if idx == 0 else 0 for idx in range(20)]
         for i, aa_win_ids in enumerate(window_aa_ids_):
             # print(i)
+            row_features = []
             for j in aa_win_ids:
                 # print(aa_win_ids)
                 if j is None:
-                    list_2d_[i] = list_2d_[i] + np.zeros(20).tolist()
+                    row_features.extend(zero)
                 else:
-                    if accpro20[j - 1][0] == 0.0:
-                        list_2d_[i] = list_2d_[i] + [1 if i == 19 else 0 for i in range(20)]
-                    elif accpro20[j - 1][0] == 0.05:
-                        list_2d_[i] = list_2d_[i] + [1 if i == 18 else 0 for i in range(20)]
-                    elif accpro20[j - 1][0] == 0.1:
-                        list_2d_[i] = list_2d_[i] + [1 if i == 17 else 0 for i in range(20)]
-                    elif accpro20[j - 1][0] == 0.15:
-                        list_2d_[i] = list_2d_[i] + [1 if i == 16 else 0 for i in range(20)]
-                    elif accpro20[j - 1][0] == 0.2:
-                        list_2d_[i] = list_2d_[i] + [1 if i == 15 else 0 for i in range(20)]
-                    elif accpro20[j - 1][0] == 0.25:
-                        list_2d_[i] = list_2d_[i] + [1 if i == 14 else 0 for i in range(20)]
-                    elif accpro20[j - 1][0] == 0.3:
-                        list_2d_[i] = list_2d_[i] + [1 if i == 13 else 0 for i in range(20)]
-                    elif accpro20[j - 1][0] == 0.35:
-                        list_2d_[i] = list_2d_[i] + [1 if i == 12 else 0 for i in range(20)]
-                    elif accpro20[j - 1][0] == 0.4:
-                        list_2d_[i] = list_2d_[i] + [1 if i == 11 else 0 for i in range(20)]
-                    elif accpro20[j - 1][0] == 0.45:
-                        list_2d_[i] = list_2d_[i] + [1 if i == 10 else 0 for i in range(20)]
-                    elif accpro20[j - 1][0] == 0.5:
-                        list_2d_[i] = list_2d_[i] + [1 if i == 9 else 0 for i in range(20)]
-                    elif accpro20[j - 1][0] == 0.55:
-                        list_2d_[i] = list_2d_[i] + [1 if i == 8 else 0 for i in range(20)]
-                    elif accpro20[j - 1][0] == 0.6:
-                        list_2d_[i] = list_2d_[i] + [1 if i == 7 else 0 for i in range(20)]
-                    elif accpro20[j - 1][0] == 0.65:
-                        list_2d_[i] = list_2d_[i] + [1 if i == 6 else 0 for i in range(20)]
-                    elif accpro20[j - 1][0] == 0.7:
-                        list_2d_[i] = list_2d_[i] + [1 if i == 5 else 0 for i in range(20)]
-                    elif accpro20[j - 1][0] == 0.75:
-                        list_2d_[i] = list_2d_[i] + [1 if i == 4 else 0 for i in range(20)]
-                    elif accpro20[j - 1][0] == 0.20:
-                        list_2d_[i] = list_2d_[i] + [1 if i == 3 else 0 for i in range(20)]
-                    elif accpro20[j - 1][0] == 0.205:
-                        list_2d_[i] = list_2d_[i] + [1 if i == 2 else 0 for i in range(20)]
-                    elif accpro20[j - 1][0] == 0.9:
-                        list_2d_[i] = list_2d_[i] + [1 if i == 1 else 0 for i in range(20)]
-                    else:
-                        list_2d_[i] = list_2d_[i] + [1 if i == 0 else 0 for i in range(20)]
+                    row_features.extend(onehot.get(accpro20[j - 1][0], default))
+            list_2d_[i].extend(row_features)
         end_time = time.time()
         self.console.print('=========>ACCpro20 solvent: {time}s.'.format(time=end_time - start_time))
         return list_2d_
@@ -125,12 +117,14 @@ class Assemble:
         list_2d_ = list_2d
         for i, aa_win_ids in enumerate(window_aa_ids_):
             # print(i)
+            row_features = []
             for j in aa_win_ids:
                 # print(aa_win_ids)
                 if j is None:
-                    list_2d_[i].append(0)
+                    row_features.append(0)
                 else:
-                    list_2d_[i].append(solvpred[j-1][2])
+                    row_features.append(solvpred[j-1][2])
+            list_2d_[i].extend(row_features)
         end_time = time.time()
         print('=========>solvpred solvent: {time}s.'.format(time=end_time - start_time))
         return list_2d_
