@@ -33,15 +33,19 @@ class Assemble:
         # print(spider3)
         window_aa_ids_ = [i[0] + i[1] for i in window_aa_ids]
         list_2d_ = list_2d
+        standardize = Standardize()
+        zero = np.zeros(13).tolist()
         for i, aa_win_ids in enumerate(window_aa_ids_):
             # print(i)
+            row_features = []
             for j in aa_win_ids:
                 # print(aa_win_ids)
                 if j is None:
-                    list_2d_[i] = list_2d_[i] + np.zeros(13).tolist()
+                    row_features.extend(zero)
                 else:
-                    trans = Standardize().minmax1(spider3[j-1][mark:]) if std else spider3[j-1][mark:]
-                    list_2d_[i] = list_2d_[i] + trans
+                    trans = standardize.minmax1(spider3[j-1][mark:]) if std else spider3[j-1][mark:]
+                    row_features.extend(trans)
+            list_2d_[i].extend(row_features)
         end_time = time.time()
         print('------> spider3 ss: {time}s.'.format(time=end_time - start_time))
         return list_2d_
@@ -57,20 +61,23 @@ class Assemble:
         print(sspro)
         window_aa_ids_ = [i[0] + i[1] for i in window_aa_ids]
         list_2d_ = list_2d
+        zero = np.zeros(3).tolist()
         for i, aa_win_ids in enumerate(window_aa_ids_):
+            row_features = []
             for j in aa_win_ids:
                 # print(aa_win_ids)
                 if j is None:
-                    list_2d_[i] = list_2d_[i] + np.zeros(3).tolist()
+                    row_features.extend(zero)
                 else:
 
                     if sspro[j - 1][0] == 'H':
-                        list_2d_[i] = list_2d_[i] + [0, 0, 1]
+                        row_features.extend([0, 0, 1])
                     elif sspro[j - 1][0] == 'E':
-                        list_2d_[i] = list_2d_[i] + [0, 1, 0]
+                        row_features.extend([0, 1, 0])
                     else:
                         print(j - 1)
-                        list_2d_[i] = list_2d_[i] + [1, 0, 0]
+                        row_features.extend([1, 0, 0])
+            list_2d_[i].extend(row_features)
         end_time = time.time()
         print('------> sspro ss: {time}s.'.format(time=end_time - start_time))
         return list_2d_
@@ -86,29 +93,27 @@ class Assemble:
         # print(sspro8)
         window_aa_ids_ = [i[0] + i[1] for i in window_aa_ids]
         list_2d_ = list_2d
+        zero = np.zeros(8).tolist()
+        sspro8_map = {
+            'H': [1 if idx == 7 else 0 for idx in range(8)],
+            'G': [1 if idx == 6 else 0 for idx in range(8)],
+            'I': [1 if idx == 5 else 0 for idx in range(8)],
+            'E': [1 if idx == 4 else 0 for idx in range(8)],
+            'B': [1 if idx == 3 else 0 for idx in range(8)],
+            'T': [1 if idx == 2 else 0 for idx in range(8)],
+            'S': [1 if idx == 1 else 0 for idx in range(8)],
+        }
+        default = [1 if idx == 0 else 0 for idx in range(8)]
         for i, aa_win_ids in enumerate(window_aa_ids_):
             # print(i)
+            row_features = []
             for j in aa_win_ids:
                 # print(aa_win_ids)
                 if j is None:
-                    list_2d_[i] = list_2d_[i] + np.zeros(8).tolist()
+                    row_features.extend(zero)
                 else:
-                    if sspro8[j - 1][0] == 'H':
-                        list_2d_[i] = list_2d_[i] + [1 if i == 7 else 0 for i in range(8)]
-                    elif sspro8[j - 1][0] == 'G':
-                        list_2d_[i] = list_2d_[i] + [1 if i == 6 else 0 for i in range(8)]
-                    elif sspro8[j - 1][0] == 'I':
-                        list_2d_[i] = list_2d_[i] + [1 if i == 5 else 0 for i in range(8)]
-                    elif sspro8[j - 1][0] == 'E':
-                        list_2d_[i] = list_2d_[i] + [1 if i == 4 else 0 for i in range(8)]
-                    elif sspro8[j - 1][0] == 'B':
-                        list_2d_[i] = list_2d_[i] + [1 if i == 3 else 0 for i in range(8)]
-                    elif sspro8[j - 1][0] == 'T':
-                        list_2d_[i] = list_2d_[i] + [1 if i == 2 else 0 for i in range(8)]
-                    elif sspro8[j - 1][0] == 'S':
-                        list_2d_[i] = list_2d_[i] + [1 if i == 1 else 0 for i in range(8)]
-                    else:
-                        list_2d_[i] = list_2d_[i] + [1 if i == 0 else 0 for i in range(8)]
+                    row_features.extend(sspro8_map.get(sspro8[j - 1][0], default))
+            list_2d_[i].extend(row_features)
         end_time = time.time()
         print('------> sspro8 ss: {time}s.'.format(time=end_time - start_time))
         return list_2d_
@@ -124,14 +129,17 @@ class Assemble:
         # print(psipred)
         window_aa_ids_ = [i[0] + i[1] for i in window_aa_ids]
         list_2d_ = list_2d
+        zero = np.zeros(3).tolist()
         for i, aa_win_ids in enumerate(window_aa_ids_):
             # print(i)
+            row_features = []
             for j in aa_win_ids:
                 # print(aa_win_ids)
                 if j is None:
-                    list_2d_[i] = list_2d_[i] + np.zeros(3).tolist()
+                    row_features.extend(zero)
                 else:
-                    list_2d_[i] = list_2d_[i] + psipred[j-1][3:]
+                    row_features.extend(psipred[j-1][3:])
+            list_2d_[i].extend(row_features)
         end_time = time.time()
         print('------> psipred ss: {time}s.'.format(time=end_time - start_time))
         return list_2d_
