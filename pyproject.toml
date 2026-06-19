@@ -15,6 +15,11 @@ matplotlib = "^3.9.1"
 scikit-learn = "^1.5.1"
 mini3di = "^0.2.1"
 click = "^8.2.1"
+torch = { version = ">=2.0.0", optional = true }
+fair-esm = { version = ">=2.0.0", optional = true }
+
+[tool.poetry.extras]
+esm = ["torch", "fair-esm"]
 
 [tool.poetry.scripts]
 pypropel_struct_check_cplx = "pypropel.prot.structure.distance.isite.check.Complex:cli"

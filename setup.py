@@ -27,6 +27,12 @@ setup(
         'mini3di',
         # 'pyfiglet', # ==0.8.post1
     ],
+    extras_require={
+        'esm': [
+            'torch>=2.0.0',
+            'fair-esm>=2.0.0',
+        ],
+    },
     entry_points={
         'console_scripts': [
             'pypropel=pypropel.main:main',
