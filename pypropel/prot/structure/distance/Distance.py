@@ -9,6 +9,7 @@ import os
 import sys
 sys.path.append(os.path.dirname(os.getcwd()) + '/')
 from abc import ABCMeta, abstractmethod
+import numpy as np
 # from Bio.PDB.Polypeptide import three_to_one
 from pypropel.util.Console import Console
 console = Console()
@@ -43,6 +44,27 @@ class distance(metaclass=ABCMeta):
     def calculate(self):
         pass
 
+    def _standard_residue_records(self, chain):
+        records = []
+        count_hetatm = 0
+        for index, residue in enumerate(chain):
+            if residue.get_id()[0] != ' ':
+                count_hetatm += 1
+                continue
+            records.append((index, index + 1 - count_hetatm, residue))
+        return records
+
+    def _heavy_atom_coords(self, residue):
+        return np.asarray([
+            atom.get_coord()
+            for atom in residue
+            if atom.get_name() != 'H'
+        ], dtype=float)
+
+    def _min_atom_distance(self, coords1, coords2):
+        diff = coords1[:, np.newaxis, :] - coords2[np.newaxis, :, :]
+        return float(np.sqrt(np.sum(diff * diff, axis=2)).min())
+
     def one2one_minimal(
             self,
             chain1,
@@ -69,41 +91,24 @@ class distance(metaclass=ABCMeta):
         """
         console.verbose = verbose
         dist_matrix = []
-        count_hetamt_1 = 0
-        count_hetamt_2 = 0
-        for index_1, residue_1 in enumerate(chain1):
+        chain2_records = [
+            (index_2, fasta_id_2, residue_2, self._heavy_atom_coords(residue_2))
+            for index_2, fasta_id_2, residue_2 in self._standard_residue_records(chain2)
+        ]
+        for index_1, fasta_id_1, residue_1 in self._standard_residue_records(chain1):
             console.print("==================>residue 1 ID: {}".format(index_1))
-            if residue_1.get_id()[0] != ' ':
-                count_hetamt_1 = count_hetamt_1 + 1
-                continue
-            else:
-                residue_dist = []
-                for index_2, residue_2 in enumerate(chain2):
-                    # console.print("=====================>residue 2 ID: {}".format(index_1))
-                    if residue_2.get_id()[0] != ' ':
-                        count_hetamt_2 = count_hetamt_2 + 1
-                        continue
-                    else:
-                        tmp_atom_dist = []
-                        for atom_1 in residue_1:
-                            if atom_1.get_name() != 'H':
-                                for atom_2 in residue_2:
-                                    if atom_2.get_name() != 'H':
-                                        calc_dist = residue_1[atom_1.get_name()] - residue_2[atom_2.get_name()]
-                                        tmp_atom_dist.append(calc_dist)
-                        # print('tmp list: %s' % tmp_atom_dist)
-                        min_atom_dist = min(tmp_atom_dist)
-                        # print(min_atom_dist)
-                        residue_dist.append(min_atom_dist)
-                # if min(residue_dist) < 6:
-                #     print(min(residue_dist))
-                min_residue_dist = min(residue_dist)
-                dist_matrix.append([
-                    index_1 + 1 - count_hetamt_1,
-                    three_to_one[residue_1.get_resname()],
-                    residue_1.id[1],
-                    min_residue_dist
-                ])
+            coords1 = self._heavy_atom_coords(residue_1)
+            residue_dist = [
+                self._min_atom_distance(coords1, coords2)
+                for _, _, _, coords2 in chain2_records
+            ]
+            min_residue_dist = min(residue_dist)
+            dist_matrix.append([
+                fasta_id_1,
+                three_to_one[residue_1.get_resname()],
+                residue_1.id[1],
+                min_residue_dist
+            ])
         return dist_matrix
 
     def one2one_all(
@@ -132,41 +137,32 @@ class distance(metaclass=ABCMeta):
         """
         console.verbose = verbose
         dist_matrix = []
-        count_hetamt_1 = 0
+        chain2_records = [
+            (
+                index_2,
+                residue_2,
+                None if residue_2.get_id()[0] != ' ' else self._heavy_atom_coords(residue_2),
+            )
+            for index_2, residue_2 in enumerate(chain2)
+        ]
         count_hetamt_2 = 0
-        for index_1, residue_1 in enumerate(chain1):
+        for index_1, fasta_id_1, residue_1 in self._standard_residue_records(chain1):
             console.print("==================>residue 1 ID: {}".format(index_1))
-            if residue_1.get_id()[0] != ' ':
-                # print(residue_1.get_id())
-                count_hetamt_1 = count_hetamt_1 + 1
-                continue
-            else:
-                # print(residue_1.get_id())
-                for index_2, residue_2 in enumerate(chain2):
-                    # console.print("=====================>residue 2 ID: {}".format(index_1))
-                    tmp_atom_dist = []
-                    if residue_2.get_id()[0] != ' ':
-                        count_hetamt_2 = count_hetamt_2 + 1
-                        continue
-                    else:
-                        for atom_1 in residue_1:
-                            if atom_1.get_name() != 'H':
-                                for atom_2 in residue_2:
-                                    if atom_2.get_name() != 'H':
-                                        calc_dist = residue_1[atom_1.get_name()] - residue_2[atom_2.get_name()]
-                                        tmp_atom_dist.append(calc_dist)
-                        # print('tmp list: %s' % tmp_atom_dist)
-                        min_dist = min(tmp_atom_dist)
-                        # print(min_dist)
-                        dist_matrix.append([
-                            index_1 + 1 - count_hetamt_1,
-                            three_to_one[residue_1.get_resname()],
-                            residue_1.id[1],
-                            index_2 + 1 - count_hetamt_2,
-                            'U' if residue_2.get_resname() == 'UNK' else three_to_one[residue_2.get_resname()],
-                            residue_2.id[1],
-                            min_dist,
-                        ])
+            coords1 = self._heavy_atom_coords(residue_1)
+            for index_2, residue_2, coords2 in chain2_records:
+                if residue_2.get_id()[0] != ' ':
+                    count_hetamt_2 += 1
+                    continue
+                min_dist = self._min_atom_distance(coords1, coords2)
+                dist_matrix.append([
+                    fasta_id_1,
+                    three_to_one[residue_1.get_resname()],
+                    residue_1.id[1],
+                    index_2 + 1 - count_hetamt_2,
+                    'U' if residue_2.get_resname() == 'UNK' else three_to_one[residue_2.get_resname()],
+                    residue_2.id[1],
+                    min_dist,
+                ])
         return dist_matrix
 
     def check(
@@ -197,31 +193,16 @@ class distance(metaclass=ABCMeta):
 
         """
         console.verbose = verbose
-        mark = False
-        for index_1, residue_1 in enumerate(chain1):
+        chain2_records = [
+            (index_2, residue_2, self._heavy_atom_coords(residue_2))
+            for index_2, _, residue_2 in self._standard_residue_records(chain2)
+        ]
+        for index_1, _, residue_1 in self._standard_residue_records(chain1):
             console.print("==================>residue 1 ID: {}".format(index_1))
-            min_check = []
-            if residue_1.get_id()[0] != ' ':
-                continue
-            else:
-                for index_2, residue_2 in enumerate(chain2):
-                    tmp_atom_dist = []
-                    if residue_2.get_id()[0] != ' ':
-                        continue
-                    else:
-                        for atom_1 in residue_1:
-                            if atom_1.get_name() != 'H':
-                                for atom_2 in residue_2:
-                                    if atom_2.get_name() != 'H':
-                                        calc_dist = residue_1[atom_1.get_name()] - residue_2[atom_2.get_name()]
-                                        tmp_atom_dist.append(calc_dist)
-                        # print('tmp list: %s' % tmp_atom_dist)
-                        min_dist = min(tmp_atom_dist)
-                        min_check.append(min_dist)
-                    if min(min_check) < thres:
-                        mark = True
-                        console.print("==================>residue {} and residue {} in interaction".format(index_1, index_2))
-                        break
-                if mark:
-                    break
-        return mark
+            coords1 = self._heavy_atom_coords(residue_1)
+            for index_2, residue_2, coords2 in chain2_records:
+                min_dist = self._min_atom_distance(coords1, coords2)
+                if min_dist < thres:
+                    console.print("==================>residue {} and residue {} in interaction".format(index_1, index_2))
+                    return True
+        return False
