@@ -17,4 +17,5 @@ from . import (
     seq,
     str,
     uniprot,
+    qc,
 )
