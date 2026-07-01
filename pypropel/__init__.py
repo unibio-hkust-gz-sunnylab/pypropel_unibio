@@ -16,6 +16,7 @@ __all__ = [
     'seq',
     'str',
     'uniprot',
+    'qc',
 ]
 
 
